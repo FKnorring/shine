@@ -85,8 +85,16 @@ object ModuleGenerator extends DPIA.Compilation.ModuleGenerator[FunDef] {
     case (declarations, code) =>
       val params = (outParam +: funDef.params).
         map(C.AST.makeParam(C.AST.makeParamTy(gen)))
+
+      val includes = immutable.Seq(
+        IncludeHeader("stdint.h")
+      ) ++ (gen.useMPFR match {
+        case Some(_) => immutable.Seq(IncludeHeader("mpfr.h"))
+        case None => immutable.Seq.empty
+      })
+
       Module(
-        includes = immutable.Seq(IncludeHeader("stdint.h")),
+        includes = includes,
         decls = collectTypeDeclarations(code, params) ++ declarations,
         functions = immutable.Seq(
           C.AST.Function(

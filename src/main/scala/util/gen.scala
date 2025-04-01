@@ -1,7 +1,10 @@
 package util
 
 import rise.elevate.rules.traversal.default
-import shine.C.Compilation.{CodeGenerator => CCodeGenerator, ModuleGenerator => CModuleGenerator}
+import shine.C.Compilation.{
+  CodeGenerator => CCodeGenerator,
+  ModuleGenerator => CModuleGenerator
+}
 import shine.DPIA.Compilation.FunDef
 import shine.OpenCL.Compilation._
 import shine.OpenCL._
@@ -10,13 +13,13 @@ import util.compiler.DSL._
 import util.compiler.PartialCompiler
 
 object gen {
-  type Expr     = rise.core.Expr
-  type Phrase   = DPIA.Phrases.Phrase[_ <: DPIA.Types.PhraseType]
+  type Expr = rise.core.Expr
+  type Phrase = DPIA.Phrases.Phrase[_ <: DPIA.Types.PhraseType]
 
   private def exprToPhrase: Expr => Phrase =
     shine.DPIA.fromRise(_)(default.RiseTraversable)
 
-  type CModule  = C.Module
+  type CModule = C.Module
 
   object c {
 
@@ -40,20 +43,46 @@ object gen {
     }
   }
 
-  private def funDefToFunction(name: String,
-                               gen: CCodeGenerator): Phrase => CModule =
+  object mpfr {
+
+    object function {
+      def fromExpr: Expr => CModule =
+        gen.mpfr.function().fromExpr
+
+      def asStringFromExpr: Expr => String =
+        gen.mpfr.function().asStringFromExpr
+
+      def asString: CModule => String =
+        gen.functionAsString
+    }
+
+    case class function(name: String = "foo") {
+      def fromExpr: Expr => CModule =
+        gen.functionFromExpr(name, CCodeGenerator(useMPFR = Some(256)))
+
+      def asStringFromExpr: Expr => String =
+        gen.functionAsStringFromExpr(name, CCodeGenerator(useMPFR = Some(256)))
+    }
+  }
+
+  private def funDefToFunction(
+      name: String,
+      gen: CCodeGenerator
+  ): Phrase => CModule =
     (FunDef(name, _)) andThen
       CModuleGenerator.funDefToModule(gen)
 
-  private def functionFromExpr(name: String = "foo",
-                               gen: CCodeGenerator = CCodeGenerator()
-                              ): Expr => CModule =
+  private def functionFromExpr(
+      name: String = "foo",
+      gen: CCodeGenerator = CCodeGenerator()
+  ): Expr => CModule =
     exprToPhrase andThen
       funDefToFunction(name, gen)
 
-  private def functionAsStringFromExpr(name: String = "foo",
-                                       gen: CCodeGenerator = CCodeGenerator()
-                                      ): Expr => String =
+  private def functionAsStringFromExpr(
+      name: String = "foo",
+      gen: CCodeGenerator = CCodeGenerator()
+  ): Expr => String =
     functionFromExpr(name, gen) andThen
       C.Module.translateToString andThen
       run(SyntaxChecker(_))
@@ -111,12 +140,12 @@ object gen {
       def asStringFromExpr: Expr => String =
         functionAsStringFromExpr(name, OpenMP.CodeGenerator())
 
-      /**
-        * Accelerator function only - Injects unpacking code
-        * */
-      private def functionAsStringFromExpr(name: String = "foo",
-                                           gen: CCodeGenerator = CCodeGenerator()
-                                          ): Expr => String =
+      /** Accelerator function only - Injects unpacking code
+        */
+      private def functionAsStringFromExpr(
+          name: String = "foo",
+          gen: CCodeGenerator = CCodeGenerator()
+      ): Expr => String =
         functionFromExpr(name, gen) andThen
           GAP8.Module.injectUnpacking andThen
           C.Module.translateToString andThen
@@ -131,22 +160,29 @@ object gen {
       def asString: HostedModule => String = GAP8.Module.translateToString
     }
 
-    case class hosted(name: String = "foo"){
+    case class hosted(name: String = "foo") {
 
       def funDefToCModule(): FunDef => C.Module =
-        shine.C.Compilation.ModuleGenerator.funDefToModule(shine.C.Compilation.CodeGenerator())
-
+        shine.C.Compilation.ModuleGenerator
+          .funDefToModule(shine.C.Compilation.CodeGenerator())
 
       def fromExpr: Expr => HostedModule = exprToPhrase andThen fromPhrase
 
       def fromPhrase: Phrase => HostedModule =
         partialHostCompiler(name) composeWith
-          ((((x: FunDef) => x) x map(funDefToCModule())) andThen hostFunDefToHostPart)
+          ((((x: FunDef) => x) x map(
+            funDefToCModule()
+          )) andThen hostFunDefToHostPart)
 
-      private val hostFunDefToHostPart: ((FunDef, Seq[C.Module])) => (C.Module, Seq[C.Module]) = {
+      private val hostFunDefToHostPart
+          : ((FunDef, Seq[C.Module])) => (C.Module, Seq[C.Module]) = {
         case (hostModule, acceleratorModule) =>
           val gen = shine.GAP8.Compilation.HostCodeGenerator(acceleratorModule)
-          (shine.GAP8.Compilation.HostCodeModuleGenerator.funDefToModule(gen)(hostModule), acceleratorModule)
+          (
+            shine.GAP8.Compilation.HostCodeModuleGenerator
+              .funDefToModule(gen)(hostModule),
+            acceleratorModule
+          )
       }
 
       private def partialHostCompiler(hostFunName: String): PartialCompiler[
@@ -167,8 +203,10 @@ object gen {
     type KernelModule = OpenCL.KernelModule
 
     sealed trait WorkGroupConfig
-    case class LocalAndGlobalSize(wgConfig: (LocalSize, GlobalSize)) extends WorkGroupConfig
-    case class PhraseDepLocalAndGlobalSize(f: Phrase => LocalAndGlobalSize) extends WorkGroupConfig
+    case class LocalAndGlobalSize(wgConfig: (LocalSize, GlobalSize))
+        extends WorkGroupConfig
+    case class PhraseDepLocalAndGlobalSize(f: Phrase => LocalAndGlobalSize)
+        extends WorkGroupConfig
 
     object kernel {
       def apply(name: String = "foo"): kernel =
@@ -177,7 +215,11 @@ object gen {
       def apply(localSize: LocalSize, globalSize: GlobalSize): kernel =
         new kernel(Some(LocalAndGlobalSize((localSize, globalSize))), "foo")
 
-      def apply(localSize: LocalSize, globalSize: GlobalSize, name: String): kernel =
+      def apply(
+          localSize: LocalSize,
+          globalSize: GlobalSize,
+          name: String
+      ): kernel =
         new kernel(Some(LocalAndGlobalSize((localSize, globalSize))), name)
 
       def fromExpr: Expr => KernelModule =
@@ -194,7 +236,7 @@ object gen {
 
       def asString: KernelModule => String =
         OpenCL.KernelModule.translationToString _ andThen
-        run(SyntaxChecker.checkOpenCL)
+          run(SyntaxChecker.checkOpenCL)
     }
 
     case class kernel(wgConfig: Option[WorkGroupConfig], name: String) {
@@ -203,10 +245,11 @@ object gen {
           fromPhrase
 
       def fromPhrase: Phrase => KernelModule = wgConfig match {
-        case Some(PhraseDepLocalAndGlobalSize(f)) => p => p |> (
-          phraseToKernelDef(name) andThen
-            kernelWithWgConfig(f(p)) andThen
-            kernelDefToKernel())
+        case Some(PhraseDepLocalAndGlobalSize(f)) =>
+          p =>
+            p |> (phraseToKernelDef(name) andThen
+              kernelWithWgConfig(f(p)) andThen
+              kernelDefToKernel())
         case Some(config: LocalAndGlobalSize) =>
           phraseToKernelDef(name) andThen
             kernelWithWgConfig(config) andThen
@@ -228,13 +271,15 @@ object gen {
     private def phraseToKernelDef(name: String): Phrase => KernelDef =
       KernelDef(name, _)
 
-    private def kernelWithWgConfig: LocalAndGlobalSize => KernelDef => KernelDef = {
-      case LocalAndGlobalSize((ls, gs)) =>_.withWgConfig(ls, gs)
+    private def kernelWithWgConfig
+        : LocalAndGlobalSize => KernelDef => KernelDef = {
+      case LocalAndGlobalSize((ls, gs)) => _.withWgConfig(ls, gs)
     }
 
     private def kernelDefToKernel(): KernelDef => KernelModule =
       KernelModuleGenerator.funDefToModule(
-        shine.OpenCL.Compilation.KernelCodeGenerator())
+        shine.OpenCL.Compilation.KernelCodeGenerator()
+      )
 
     type HostedModule = OpenCL.Module
 
@@ -250,22 +295,26 @@ object gen {
       def fromPhrase: Phrase => HostedModule =
         partialHostCompiler(name) composeWith
           ((((x: FunDef) => x) x map(kernelDefToKernel())) andThen
-          hostFunDefToHostPart)
+            hostFunDefToHostPart)
     }
 
-    private val hostFunDefToHostPart:
-      ((FunDef, Seq[KernelModule])) => (CModule, Seq[KernelModule]) = { case (hm, kms) =>
-      val gen = shine.OpenCL.Compilation.HostCodeGenerator(kms)
-      (HostCodeModuleGenerator.funDefToModule(gen)(hm), kms)
+    private val hostFunDefToHostPart
+        : ((FunDef, Seq[KernelModule])) => (CModule, Seq[KernelModule]) = {
+      case (hm, kms) =>
+        val gen = shine.OpenCL.Compilation.HostCodeGenerator(kms)
+        (HostCodeModuleGenerator.funDefToModule(gen)(hm), kms)
     }
 
     private def partialHostCompiler(hostFunName: String): PartialCompiler[
-      Phrase,   HostedModule,
-      (FunDef,  Seq[KernelDef]),
-      (CModule, Seq[KernelModule])] =
-        PartialCompiler.functor(
-          OpenCL.Compilation.SeparateHostAndKernelCode.separate(hostFunName),
-          (OpenCL.Module.apply _).tupled)
+      Phrase,
+      HostedModule,
+      (FunDef, Seq[KernelDef]),
+      (CModule, Seq[KernelModule])
+    ] =
+      PartialCompiler.functor(
+        OpenCL.Compilation.SeparateHostAndKernelCode.separate(hostFunName),
+        (OpenCL.Module.apply _).tupled
+      )
   }
 
   object cuda {
@@ -280,7 +329,11 @@ object gen {
       def apply(localSize: LocalSize, globalSize: GlobalSize): kernel =
         new kernel(Some(LocalAndGlobalSize(localSize, globalSize)), "foo")
 
-      def apply(localSize: LocalSize, globalSize: GlobalSize, name: String): kernel =
+      def apply(
+          localSize: LocalSize,
+          globalSize: GlobalSize,
+          name: String
+      ): kernel =
         new kernel(Some(LocalAndGlobalSize(localSize, globalSize)), name)
 
       def fromExpr: Expr => KernelModule =
@@ -306,10 +359,11 @@ object gen {
           fromPhrase
 
       def fromPhrase: Phrase => KernelModule = wgConfig match {
-        case Some(PhraseDepLocalAndGlobalSize(f)) => p => p |> (
-          phraseToKernelDef(name) andThen
-            kernelWithWgConfig(f(p)) andThen
-            kernelDefToKernel())
+        case Some(PhraseDepLocalAndGlobalSize(f)) =>
+          p =>
+            p |> (phraseToKernelDef(name) andThen
+              kernelWithWgConfig(f(p)) andThen
+              kernelDefToKernel())
         case Some(config: LocalAndGlobalSize) =>
           phraseToKernelDef(name) andThen
             kernelWithWgConfig(config) andThen
@@ -331,13 +385,14 @@ object gen {
     private def phraseToKernelDef(name: String): Phrase => KernelDef =
       KernelDef(name, _)
 
-    private def kernelWithWgConfig: LocalAndGlobalSize => KernelDef => KernelDef = {
-      case LocalAndGlobalSize((ls, gs)) =>_.withWgConfig(ls, gs)
+    private def kernelWithWgConfig
+        : LocalAndGlobalSize => KernelDef => KernelDef = {
+      case LocalAndGlobalSize((ls, gs)) => _.withWgConfig(ls, gs)
     }
 
     private def kernelDefToKernel(): KernelDef => KernelModule =
-      shine.cuda.Compilation.KernelModuleGenerator.funDefToModule(
-        shine.cuda.Compilation.KernelCodeGenerator())
+      shine.cuda.Compilation.KernelModuleGenerator
+        .funDefToModule(shine.cuda.Compilation.KernelCodeGenerator())
 
     type HostedModule = shine.cuda.Module
 
@@ -353,22 +408,27 @@ object gen {
       def fromPhrase: Phrase => HostedModule =
         partialHostCompiler(name) composeWith
           ((((x: FunDef) => x) x map(kernelDefToKernel())) andThen
-          hostFunDefToHostPart)
+            hostFunDefToHostPart)
     }
 
-    private val hostFunDefToHostPart:
-      ((FunDef, Seq[KernelModule])) => (CModule, Seq[KernelModule]) = { case (hm, kms) =>
-      // FIXME: The OpenCL host code generator does not work with CUDA kernel modules
-      //  We need to refactor the OpenCL and CUDA backends and generalize host code generation
-      ???
+    private val hostFunDefToHostPart
+        : ((FunDef, Seq[KernelModule])) => (CModule, Seq[KernelModule]) = {
+      case (hm, kms) =>
+        // FIXME: The OpenCL host code generator does not work with CUDA kernel modules
+        //  We need to refactor the OpenCL and CUDA backends and generalize host code generation
+        ???
     }
 
     private def partialHostCompiler(hostFunName: String): PartialCompiler[
-      Phrase,   HostedModule,
-      (FunDef,  Seq[KernelDef]),
-      (CModule, Seq[KernelModule])] =
+      Phrase,
+      HostedModule,
+      (FunDef, Seq[KernelDef]),
+      (CModule, Seq[KernelModule])
+    ] =
       PartialCompiler.functor(
-        shine.OpenCL.Compilation.SeparateHostAndKernelCode.separate(hostFunName),
-        (shine.cuda.Module.apply _).tupled)
+        shine.OpenCL.Compilation.SeparateHostAndKernelCode
+          .separate(hostFunName),
+        (shine.cuda.Module.apply _).tupled
+      )
   }
 }

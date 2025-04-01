@@ -18,4 +18,8 @@ modules.xml
 *.gz
 *.sc
 
+out/*
+autotuning/**
+*.pyc
+
 float-safe-optimizer.jar

@@ -9,13 +9,19 @@ object Main {
     val name = args(0)
     val exprSourcePath = args(1)
     val outputPath = args(2)
+    val useMPFR = args.length > 3 && args(3).toBoolean
+    println(s"useMPFR: $useMPFR")
 
     val exprSource = util.readFile(exprSourcePath)
     val untypedExpr = parseExpr(prefixImports(exprSource))
     val typedExpr = untypedExpr.toExpr
     val optimizedExpr = Optimize(typedExpr)
     println(optimizedExpr)
-    val code = gen.openmp.function.asStringFromExpr(optimizedExpr)
+    val code = if (useMPFR) {
+      gen.mpfr.function.asStringFromExpr(optimizedExpr)
+    } else {
+      gen.openmp.function.asStringFromExpr(optimizedExpr)
+    }
     util.writeToPath(outputPath, code)
   }
 

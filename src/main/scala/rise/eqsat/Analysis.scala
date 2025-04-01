@@ -580,6 +580,8 @@ object BeamExtractRW {
   def merge[Cost](beamSize: Int, cf: CostFunction[Cost],
                   a: Data[Cost], b: Data[Cost]): Data[Cost] = {
     (a.keySet union b.keySet).map { ta =>
+      // Simple merge - we keep annotations as is and let the lookup in LoweringSearch 
+      // handle the subtyping check with proper TypeIds
       ta -> ((a.get(ta), b.get(ta)) match {
         case (Some(x), Some(y)) => Beam.merge(beamSize, cf, x, y)
         case (None, Some(x)) => x
@@ -884,6 +886,7 @@ case class BeamExtractRW[Cost](beamSize: Int, cf: CostFunction[Cost])
           case rp.reduceSeq() | rp.reduceSeqUnroll() => Seq(
             (read ->: read ->: write) ->: write ->: read ->: read
           )
+          case rp.reduce() => Seq()
           case roclp.oclReduceSeq() | roclp.oclReduceSeqUnroll() => Seq(
             aFunT((read ->: read ->: write) ->: write ->: read ->: read)
           )

@@ -53,8 +53,79 @@ class LoweringSearch(var filter: Predicate) {
 
     util.printTime("lowered extraction time", {
       val tmp = Analysis.oneShot(BeamExtractRW(1, costFunction), egraph)(egraph.find(rootId))
-      tmp.get(expectedAnnotations)
-        .map { beam => ExprWithHashCons.expr(egraph)(beam.head._2) }
+      
+      println(s"Expected annotations: $expectedAnnotations")
+      println("Available annotations:")
+      tmp.keys.foreach(println)
+      
+      // Get the type from the root EClass
+      val rootType = egraph.classes(rootId).t
+      
+      // Find any annotation that is compatible with the expected annotations
+      val result = tmp.find { case (inferredAnnotations, beam) =>
+        // Check if the inferred annotation is compatible with the expected annotation
+        val (inferredAccess, inferredEnv) = inferredAnnotations
+        val (expectedAccess, expectedEnv) = expectedAnnotations
+        
+        // First check the environments are compatible
+        val envCompatible = BeamExtractRW.mergeEnv(inferredEnv, expectedEnv).isDefined
+        if (!envCompatible) {
+          println(s"Environment mismatch: inferred=$inferredEnv expected=$expectedEnv")
+        }
+        
+        // Helper function for recursive subtyping checks
+        def subtypeRec(inferred: BeamExtractRW.TypeAnnotation, expected: BeamExtractRW.TypeAnnotation, t: TypeId): Boolean = {
+          (inferred, expected) match {
+            case (BeamExtractRW.DataTypeAnnotation(x), BeamExtractRW.DataTypeAnnotation(y)) =>
+              // Allow read to be compatible with write for non-array types
+              (x == y) || (x == rise.core.types.read && BeamExtractRW.notContainingArrayType(t.asInstanceOf[DataTypeId], egraph))
+            
+            case (BeamExtractRW.NotDataTypeAnnotation(x), BeamExtractRW.NotDataTypeAnnotation(y)) =>
+              import rise.eqsat.TypeNode._
+              (x, y) match {
+                case (FunType(aIn, aOut), FunType(bIn, bOut)) =>
+                  egraph(t) match {
+                    case FunType(inT, outT) =>
+                      // Contravariant in input (swap inferred/expected), covariant in output
+                      subtypeRec(bIn, aIn, inT) && subtypeRec(aOut, bOut, outT)
+                    case _ => false
+                  }
+                case (NatFunType(aOut), NatFunType(bOut)) =>
+                  egraph(t) match {
+                    case NatFunType(outT) => subtypeRec(aOut, bOut, outT)
+                    case _ => false
+                  }
+                case (DataFunType(aOut), DataFunType(bOut)) =>
+                  egraph(t) match {
+                    case DataFunType(outT) => subtypeRec(aOut, bOut, outT)
+                    case _ => false
+                  }
+                case (AddrFunType(aOut), AddrFunType(bOut)) =>
+                  egraph(t) match {
+                    case AddrFunType(outT) => subtypeRec(aOut, bOut, outT)
+                    case _ => false
+                  }
+                case _ => x == y
+              }
+            case _ => false
+          }
+        }
+        
+        // Then check the access annotations are compatible via subtyping
+        val accessCompatible = subtypeRec(inferredAccess, expectedAccess, rootType)
+        if (!accessCompatible) {
+          println(s"Access annotation mismatch: inferred=$inferredAccess expected=$expectedAccess")
+          println(s"Type context: rootType=$rootType")
+        }
+        
+        envCompatible && accessCompatible
+      }
+      
+      if (result.isEmpty) {
+        println("No compatible annotations found!")
+      }
+      
+      result.flatMap(_._2.headOption.map(x => ExprWithHashCons.expr(egraph)(x._2)))
     })
   }
 }

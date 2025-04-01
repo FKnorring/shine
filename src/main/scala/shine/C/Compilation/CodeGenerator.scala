@@ -843,8 +843,10 @@ class CodeGenerator(
           case rise.core.types.DataType.i64  => C.AST.Type.i64
           case rise.core.types.DataType.f16 =>
             throw new Exception("f16 not supported")
-          case rise.core.types.DataType.f32 => C.AST.Type.float
-          case rise.core.types.DataType.f64 => C.AST.Type.double
+          case rise.core.types.DataType.f32 => 
+            if (useMPFR.isDefined) C.AST.Type.mpfr_t else C.AST.Type.float
+          case rise.core.types.DataType.f64 => 
+            if (useMPFR.isDefined) C.AST.Type.mpfr_t else C.AST.Type.double
         }
       case rise.core.types.DataType.NatType      => C.AST.Type.int
       case _: rise.core.types.DataType.IndexType => C.AST.Type.int
@@ -1326,7 +1328,8 @@ class CodeGenerator(
       d match {
         case NatData(n)      => C.AST.ArithmeticExpr(n)
         case IndexData(i, _) => C.AST.ArithmeticExpr(i)
-        case _: IntData | _: FloatData | _: DoubleData | _: BoolData =>
+        case BoolData(b)     => C.AST.Literal(b.toString)
+        case _: IntData | _: FloatData | _: DoubleData =>
           C.AST.Literal(d.toString)
         case NatAsIntData(n) =>
           C.AST.Literal(n.toString)
@@ -1987,5 +1990,28 @@ class CodeGenerator(
         )
       }
     )
+  }
+
+  // Helper methods for MPFR support
+  protected def initMPFR(expr: Expr): Stmt = {
+    C.AST.ExprStmt(
+      C.AST.FunCall(
+        C.AST.DeclRef("mpfr_init2"),
+        immutable.Seq(expr, C.AST.Literal(useMPFR.get.toString))
+      )
+    )
+  }
+
+  protected def clearMPFR(expr: Expr): Stmt = {
+    C.AST.ExprStmt(
+      C.AST.FunCall(
+        C.AST.DeclRef("mpfr_clear"),
+        immutable.Seq(expr)
+      )
+    )
+  }
+
+  protected def isMPFRType(t: C.AST.Type): Boolean = {
+    t == C.AST.Type.mpfr_t
   }
 }

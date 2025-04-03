@@ -132,29 +132,72 @@ class CodeGenerator(
         case Seq(p1, p2) => C.AST.Stmts(p1 |> cmd(env), p2 |> cmd(env))
 
         case Assign(_, a: Phrase[AccType], e) =>
-          // We can get the type information from the AccType
           val destType = typ(a.t.dataType)
+          val srcType = typ(e.t.dataType)  // Get source type before generating code
           e |> exp(
             env,
             Nil,
-            e => a |> acc(env, Nil, aExpr => {
-              if (isMPFRType(destType)) {
-                // Generate MPFR function call instead of direct assignment
-                C.AST.ExprStmt(
-                  C.AST.FunCall(
-                    C.AST.DeclRef("mpfr_set_d"),
-                    immutable.Seq(
-                      aExpr,       // destination
-                      e,          // value
-                      C.AST.DeclRef("MPFR_RNDN")  // rounding mode
-                    )
-                  )
-                )
-              } else {
-                // Regular assignment for non-MPFR types
-                C.AST.ExprStmt(C.AST.Assignment(aExpr, e))
-              }
-            })
+            e =>
+              a |> acc(
+                env,
+                Nil,
+                aExpr => {
+                  if (isMPFRType(destType)) {
+                    e match {
+                      case C.AST.FunCall(C.AST.DeclRef(name), args)
+                          if name.startsWith("mpfr_") =>
+                        // If it's already an MPFR operation, use it directly
+                        C.AST.ExprStmt(
+                          C.AST.FunCall(
+                            C.AST.DeclRef(name),
+                            aExpr +: args.tail // Replace first arg with our target
+                          )
+                        )
+                      case C.AST.Literal(_) =>
+                        // For literals, always use mpfr_set_d
+                        C.AST.ExprStmt(
+                          C.AST.FunCall(
+                            C.AST.DeclRef("mpfr_set_d"),
+                            immutable.Seq(
+                              aExpr,
+                              e,
+                              C.AST.DeclRef("MPFR_RNDN")
+                            )
+                          )
+                        )
+                      case _ =>
+                        // For other expressions, check if source is MPFR type
+                        if (isMPFRType(srcType)) {
+                          // Use mpfr_set for MPFR-to-MPFR assignment
+                          C.AST.ExprStmt(
+                            C.AST.FunCall(
+                              C.AST.DeclRef("mpfr_set"),
+                              immutable.Seq(
+                                aExpr,
+                                e,
+                                C.AST.DeclRef("MPFR_RNDN")
+                              )
+                            )
+                          )
+                        } else {
+                          // Use mpfr_set_d for float/double-to-MPFR assignment
+                          C.AST.ExprStmt(
+                            C.AST.FunCall(
+                              C.AST.DeclRef("mpfr_set_d"),
+                              immutable.Seq(
+                                aExpr,
+                                e,
+                                C.AST.DeclRef("MPFR_RNDN")
+                              )
+                            )
+                          )
+                        }
+                    }
+                  } else {
+                    C.AST.ExprStmt(C.AST.Assignment(aExpr, e))
+                  }
+                }
+              )
           )
 
         case New(dt, Lambda(v, p)) => CCodeGen.codeGenNew(dt, v, p, env)
@@ -535,16 +578,59 @@ class CodeGenerator(
         case _: ScalarType | NatType =>
           path match {
             case Nil =>
-              e1 |> exp(
-                env,
-                Nil,
-                e1 =>
-                  e2 |> exp(
-                    env,
-                    Nil,
-                    e2 => cont(CCodeGen.codeGenBinaryOp(op, e1, e2))
-                  )
-              )
+              // Check if we're dealing with MPFR types
+              val resultType = typ(bop.t.dataType)
+              if (isMPFRType(resultType)) {
+                e1 |> exp(
+                  env,
+                  Nil,
+                  e1 =>
+                    e2 |> exp(
+                      env,
+                      Nil,
+                      e2 => {
+                        // Choose appropriate MPFR function based on operator
+                        val baseMpfrFunc = op match {
+                          case Operators.Binary.ADD => "mpfr_add"
+                          case Operators.Binary.SUB => "mpfr_sub"
+                          case Operators.Binary.MUL => "mpfr_mul"
+                          case Operators.Binary.DIV => "mpfr_div"
+                          case _ =>
+                            error(s"Unsupported MPFR binary operation: $op")
+                        }
+                        
+                        // Check if either e1 or e2 is a literal to determine if we need the _d suffix
+                        val (mpfrFunc, params) = (e1, e2) match {
+                          case (C.AST.Literal(_), _) => 
+                            (s"${baseMpfrFunc}_d", immutable.Seq(e2, e2, e1, C.AST.DeclRef("MPFR_RNDN")))
+                          case (_, C.AST.Literal(_)) => 
+                            (s"${baseMpfrFunc}_d", immutable.Seq(e1, e1, e2, C.AST.DeclRef("MPFR_RNDN")))
+                          case _ => 
+                            (baseMpfrFunc, immutable.Seq(e1, e1, e2, C.AST.DeclRef("MPFR_RNDN")))
+                        }
+                        
+                        cont(
+                          C.AST.FunCall(
+                            C.AST.DeclRef(mpfrFunc),
+                            params
+                          )
+                        )
+                      }
+                    )
+                )
+              } else {
+                // Original non-MPFR handling
+                e1 |> exp(
+                  env,
+                  Nil,
+                  e1 =>
+                    e2 |> exp(
+                      env,
+                      Nil,
+                      e2 => cont(CCodeGen.codeGenBinaryOp(op, e1, e2))
+                    )
+                )
+              }
             case _ => error(s"Expected path to be empty")
           }
         case _ => error(s"Expected scalar types, but ${bop.t.dataType} found")
@@ -862,9 +948,9 @@ class CodeGenerator(
           case rise.core.types.DataType.i64  => C.AST.Type.i64
           case rise.core.types.DataType.f16 =>
             throw new Exception("f16 not supported")
-          case rise.core.types.DataType.f32 => 
+          case rise.core.types.DataType.f32 =>
             if (useMPFR.isDefined) C.AST.Type.mpfr_t else C.AST.Type.float
-          case rise.core.types.DataType.f64 => 
+          case rise.core.types.DataType.f64 =>
             if (useMPFR.isDefined) C.AST.Type.mpfr_t else C.AST.Type.double
         }
       case rise.core.types.DataType.NatType      => C.AST.Type.int
@@ -1085,7 +1171,6 @@ class CodeGenerator(
         p: Phrase[CommType],
         env: Environment
     ): Stmt = {
-
       // if float/double -> do something else
       val ve = Identifier(s"${v.name}_e", v.t.t1) // expression, read from
       val va = Identifier(s"${v.name}_a", v.t.t2) // acceptor, write to
@@ -1095,12 +1180,15 @@ class CodeGenerator(
         immutable.Seq(
           C.AST.DeclStmt(C.AST.VarDecl(vC.name, typ(dt))), // mpfr_t
           // mpfr_init2
-          if (isMPFRType(typ(dt))) initMPFR(vC) else C.AST.Comment("non-MPFR type"),
+          if (isMPFRType(typ(dt))) initMPFR(vC)
+          else C.AST.Comment("non-MPFR type"),
           Phrase.substitute(PhrasePair(ve, va), `for` = v, `in` = p) |> cmd(
             env updatedIdentEnv (ve -> vC)
               updatedIdentEnv (va -> vC)
-              // mpfr_clear
-          )
+          ),
+          // Add cleanup for MPFR variables
+          if (isMPFRType(typ(dt))) clearMPFR(vC)
+          else C.AST.Comment("non-MPFR type")
         )
       )
     }

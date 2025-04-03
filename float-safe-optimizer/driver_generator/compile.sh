@@ -4,14 +4,24 @@
 # using the float-safe-optimizer.
 
 # Check for correct number of arguments.
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 PATH_TO_RISE_FILE"
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  echo "Usage: $0 PATH_TO_RISE_FILE [--mpfr]"
   exit 1
 fi
 
 RISE_SOURCE="$1"
+USE_MPFR="false"
+
+# Check if MPFR flag is provided
+if [ "$#" -eq 2 ] && [ "$2" = "--mpfr" ]; then
+  USE_MPFR="true"
+fi
+
 # Extract the function name from the file name (remove path and extension)
 FUNCTION_NAME=$(basename "$RISE_SOURCE" .rise)
+if [ "$USE_MPFR" = "true" ]; then
+  FUNCTION_NAME="${FUNCTION_NAME}_mpfr"
+fi
 
 # Create out directory if it doesn't exist
 OUT_DIR="out"
@@ -19,8 +29,6 @@ mkdir -p "$OUT_DIR"
 
 # Construct the output file path in the out directory
 OUTPUT="${OUT_DIR}/${FUNCTION_NAME}.c"
-
-USE_MPFR="true"
 
 # Check if the source file exists.
 if [ ! -f "$RISE_SOURCE" ]; then

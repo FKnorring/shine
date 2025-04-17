@@ -15,7 +15,7 @@ extern void foo_mpfr(mpfr_t *output, int n0, mpfr_t *x0);
 
 int main(int argc, char** argv) {
   // Set dimensions
-  int n0 = 2048; // dimension size for n0
+  int n0 = 256; // dimension size for n0
 
   float* output = malloc(n0 * sizeof(float));
   float* x0 = malloc(n0 * sizeof(float));
@@ -30,11 +30,11 @@ int main(int argc, char** argv) {
   for (int i = 0; i < n0; i++) {
     float val = (float)rand() / RAND_MAX;
     x0[i] = val;
-    mpfr_init2(x0_mpfr[i], 512);
+    mpfr_init2(x0_mpfr[i], 256);
     mpfr_set_d(x0_mpfr[i], val, MPFR_RNDN);
   }
   for (int i = 0; i < n0; i++) {
-    mpfr_init2(output_mpfr[i], 512);
+    mpfr_init2(output_mpfr[i], 256);
   }
 
   // Standard version benchmark
@@ -57,18 +57,37 @@ int main(int argc, char** argv) {
   printf("MPFR version: %f seconds per iteration\n", mpfr_time);
 
   // Accuracy comparison
-  double max_diff = 0.0;
-  double avg_diff = 0.0;
+  mpfr_t max_diff, avg_diff, diff, temp;
+  mpfr_init2(max_diff, 256);
+  mpfr_init2(avg_diff, 256);
+  mpfr_init2(diff, 256);
+  mpfr_init2(temp, 256);
+  
+  mpfr_set_d(max_diff, 0.0, MPFR_RNDN);
+  mpfr_set_d(avg_diff, 0.0, MPFR_RNDN);
+  
   for (int i = 0; i < n0; i++) {
-    double mpfr_val = mpfr_get_d(output_mpfr[i], MPFR_RNDN);
-    double diff = fabs(output[i] - mpfr_val);
-    max_diff = fmax(max_diff, diff);
-    avg_diff += diff;
+    // Convert float output to mpfr
+    mpfr_set_d(temp, output[i], MPFR_RNDN);
+    // Calculate |output_mpfr[i] - temp|
+    mpfr_sub(diff, output_mpfr[i], temp, MPFR_RNDN);
+    mpfr_abs(diff, diff, MPFR_RNDN);
+    
+    // Update max_diff
+    if (mpfr_cmp(diff, max_diff) > 0) {
+      mpfr_set(max_diff, diff, MPFR_RNDN);
+    }
+    
+    // Update avg_diff
+    mpfr_add(avg_diff, avg_diff, diff, MPFR_RNDN);
   }
-  avg_diff /= n0;
+  
+  // Calculate average
+  mpfr_div_ui(avg_diff, avg_diff, n0, MPFR_RNDN);
+  
   printf("\nAccuracy Comparison:\n");
-  printf("  Maximum absolute error: %e\n", max_diff);
-  printf("  Average absolute error: %e\n", avg_diff);
+  printf("  Maximum absolute error: %e\n", mpfr_get_d(max_diff, MPFR_RNDN));
+  printf("  Average absolute error: %e\n", mpfr_get_d(avg_diff, MPFR_RNDN));
   printf("\nMPFR Slowdown: %.2fx\n", mpfr_time / standard_time);
 
   free(output);
@@ -81,6 +100,12 @@ int main(int argc, char** argv) {
   }
   free(output_mpfr);
   free(x0_mpfr);
+  
+  // Clear MPFR variables used for error calculation
+  mpfr_clear(max_diff);
+  mpfr_clear(avg_diff);
+  mpfr_clear(diff);
+  mpfr_clear(temp);
 
   return EXIT_SUCCESS;
 }

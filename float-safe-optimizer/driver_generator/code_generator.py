@@ -87,16 +87,72 @@ def generate_array_allocations(parsed_info: Dict[str, Any]) -> List[str]:
     
     return lines
 
-def generate_array_initialization(parsed_info: Dict[str, Any], precision: int = 256) -> List[str]:
-    """Generate code for initializing arrays with random data for both versions."""
+def generate_array_initialization(parsed_info: Dict[str, Any], precision: int = 256, float_type: str = "normal") -> List[str]:
+    """Generate code for initializing arrays with random data for both versions.
+    
+    Args:
+        parsed_info: The parsed function information
+        precision: The MPFR precision in bits
+        float_type: Type of floating point numbers to generate:
+            - normal: Regular random numbers between 0 and 1
+            - subnormal: Denormalized/subnormal floating point numbers
+            - mixed: A mixture of normal and subnormal numbers
+            - magnitude: A mixture of high and low magnitude numbers
+    """
     lines = []
+    
+    # Add helper function for generating different types of floats
+    if float_type != "normal":
+        lines.extend([
+            "  // Helper function to generate different types of floating point numbers",
+            "  float generate_float(int type, int idx) {",
+            "    float val = (float)rand() / RAND_MAX;",
+            "    ",
+            "    switch(type) {",
+            "      case 1: // subnormal",
+            "        // Generate a subnormal float (between 0 and 2^-126 ≈ 1.18e-38)",
+            "        return val * 1.18e-38f;",
+            "      case 2: // mixed (normal and subnormal)",
+            "        // 50% chance of generating a subnormal number",
+            "        if (rand() % 2 == 0) {",
+            "          return val * 1.18e-38f;",
+            "        } else {",
+            "          return val;",
+            "        }",
+            "      case 3: // magnitude (high and low)",
+            "        // Generate numbers with varying magnitudes",
+            "        // 33% small, 33% medium, 33% large",
+            "        int choice = rand() % 3;",
+            "        if (choice == 0) {",
+            "          return val * 1.0e-20f; // Small but not subnormal",
+            "        } else if (choice == 1) {",
+            "          return val; // Medium",
+            "        } else {",
+            "          return val * 1.0e20f; // Large",
+            "        }",
+            "      default:",
+            "        return val;",
+            "    }",
+            "  }",
+            ""
+        ])
     
     # Initialize standard version
     for inp in parsed_info['inputs']:
         input_size = get_array_size(parsed_info, inp["name"])
+        lines.append(f"  for (int i = 0; i < {input_size}; i++) {{")
+        
+        # Generate floating point values based on the requested type
+        if float_type == "normal":
+            lines.append(f"    float val = (float)rand() / RAND_MAX;")
+        elif float_type == "subnormal":
+            lines.append(f"    float val = generate_float(1, i);")
+        elif float_type == "mixed":
+            lines.append(f"    float val = generate_float(2, i);")
+        elif float_type == "magnitude":
+            lines.append(f"    float val = generate_float(3, i);")
+        
         lines.extend([
-            f"  for (int i = 0; i < {input_size}; i++) {{",
-            f"    float val = (float)rand() / RAND_MAX;",
             f"    {inp['name']}[i] = val;",
             f"    mpfr_init2({inp['name']}_mpfr[i], {precision});",
             f"    mpfr_set_d({inp['name']}_mpfr[i], val, MPFR_RNDN);",
@@ -146,22 +202,41 @@ def generate_benchmark_code(parsed_info: Dict[str, Any]) -> List[str]:
         ""
     ])
     
-    # Accuracy comparison
+    # Accuracy comparison using MPFR
     output_size = get_array_size(parsed_info, parsed_info["output"]["name"])
     lines.extend([
         "  // Accuracy comparison",
-        "  double max_diff = 0.0;",
-        "  double avg_diff = 0.0;",
+        "  mpfr_t max_diff, avg_diff, diff, temp;",
+        "  mpfr_init2(max_diff, 256);",
+        "  mpfr_init2(avg_diff, 256);",
+        "  mpfr_init2(diff, 256);",
+        "  mpfr_init2(temp, 256);",
+        "  ",
+        "  mpfr_set_d(max_diff, 0.0, MPFR_RNDN);",
+        "  mpfr_set_d(avg_diff, 0.0, MPFR_RNDN);",
+        "  ",
         f"  for (int i = 0; i < {output_size}; i++) {{",
-        f"    double mpfr_val = mpfr_get_d({parsed_info['output']['name']}_mpfr[i], MPFR_RNDN);",
-        f"    double diff = fabs({parsed_info['output']['name']}[i] - mpfr_val);",
-        "    max_diff = fmax(max_diff, diff);",
-        "    avg_diff += diff;",
+        "    // Convert float output to mpfr",
+        f"    mpfr_set_d(temp, {parsed_info['output']['name']}[i], MPFR_RNDN);",
+        "    // Calculate |output_mpfr[i] - temp|",
+        f"    mpfr_sub(diff, {parsed_info['output']['name']}_mpfr[i], temp, MPFR_RNDN);",
+        "    mpfr_abs(diff, diff, MPFR_RNDN);",
+        "    ",
+        "    // Update max_diff",
+        "    if (mpfr_cmp(diff, max_diff) > 0) {",
+        "      mpfr_set(max_diff, diff, MPFR_RNDN);",
+        "    }",
+        "    ",
+        "    // Update avg_diff",
+        "    mpfr_add(avg_diff, avg_diff, diff, MPFR_RNDN);",
         "  }",
-        f"  avg_diff /= {output_size};",
+        "  ",
+        "  // Calculate average",
+        f"  mpfr_div_ui(avg_diff, avg_diff, {output_size}, MPFR_RNDN);",
+        "  ",
         "  printf(\"\\nAccuracy Comparison:\\n\");",
-        "  printf(\"  Maximum absolute error: %e\\n\", max_diff);",
-        "  printf(\"  Average absolute error: %e\\n\", avg_diff);",
+        "  printf(\"  Maximum absolute error: %e\\n\", mpfr_get_d(max_diff, MPFR_RNDN));",
+        "  printf(\"  Average absolute error: %e\\n\", mpfr_get_d(avg_diff, MPFR_RNDN));",
         "  printf(\"\\nMPFR Slowdown: %.2fx\\n\", mpfr_time / standard_time);",
         ""
     ])
@@ -193,10 +268,30 @@ def generate_cleanup_code(parsed_info: Dict[str, Any]) -> List[str]:
     for inp in parsed_info['inputs']:
         lines.append(f"  free({inp['name']}_mpfr);")
     
+    # Clear MPFR variables used for error calculation
+    lines.append("  ")
+    lines.append("  // Clear MPFR variables used for error calculation")
+    lines.append("  mpfr_clear(max_diff);")
+    lines.append("  mpfr_clear(avg_diff);")
+    lines.append("  mpfr_clear(diff);")
+    lines.append("  mpfr_clear(temp);")
+    
     return lines
 
-def generate_driver(parsed_info: Dict[str, Any], rise_code: str = None, dimension: int = 256, precision: int = 256) -> str:
-    """Generate the complete comparison driver code."""
+def generate_driver(parsed_info: Dict[str, Any], rise_code: str = None, dimension: int = 256, precision: int = 256, float_type: str = "normal") -> str:
+    """Generate the complete comparison driver code.
+    
+    Args:
+        parsed_info: The parsed function information
+        rise_code: The RISE source code
+        dimension: The dimension size for all dimensions
+        precision: The MPFR precision in bits
+        float_type: Type of floating point numbers to generate:
+            - normal: Regular random numbers between 0 and 1
+            - subnormal: Denormalized/subnormal floating point numbers
+            - mixed: A mixture of normal and subnormal numbers
+            - magnitude: A mixture of high and low magnitude numbers
+    """
     driver_lines = []
     
     # Add includes and helper functions
@@ -228,8 +323,8 @@ def generate_driver(parsed_info: Dict[str, Any], rise_code: str = None, dimensio
     driver_lines.append("  }")
     driver_lines.append("")
     
-    # Add array initialization with precision
-    driver_lines.extend(generate_array_initialization(parsed_info, precision))
+    # Add array initialization with precision and float type
+    driver_lines.extend(generate_array_initialization(parsed_info, precision, float_type))
     driver_lines.append("")
     
     # Add benchmark code

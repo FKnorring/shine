@@ -590,7 +590,7 @@ class CodeGenerator(
                       Nil,
                       e2 => {
                         // Choose appropriate MPFR function based on operator
-                        val baseMpfrFunc = op match {
+                        val mpfrFunc = op match {
                           case Operators.Binary.ADD => "mpfr_add"
                           case Operators.Binary.SUB => "mpfr_sub"
                           case Operators.Binary.MUL => "mpfr_mul"
@@ -599,20 +599,35 @@ class CodeGenerator(
                             error(s"Unsupported MPFR binary operation: $op")
                         }
                         
-                        // Check if either e1 or e2 is a literal to determine if we need the _d suffix
-                        val (mpfrFunc, params) = (e1, e2) match {
-                          case (C.AST.Literal(_), _) => 
-                            (s"${baseMpfrFunc}_d", immutable.Seq(e2, e2, e1, C.AST.DeclRef("MPFR_RNDN")))
-                          case (_, C.AST.Literal(_)) => 
-                            (s"${baseMpfrFunc}_d", immutable.Seq(e1, e1, e2, C.AST.DeclRef("MPFR_RNDN")))
-                          case _ => 
-                            (baseMpfrFunc, immutable.Seq(e1, e1, e2, C.AST.DeclRef("MPFR_RNDN")))
-                        }
+                        // Create a temporary variable for the result
+                        val tmpName = freshName("mpfr_tmp")
+                        val tmpVar = C.AST.DeclRef(tmpName)
                         
-                        cont(
-                          C.AST.FunCall(
-                            C.AST.DeclRef(mpfrFunc),
-                            params
+                        // First create a block that declares, initializes and computes the result
+                        C.AST.Block(
+                          immutable.Seq(
+                            // Declare the temporary mpfr_t variable
+                            C.AST.DeclStmt(
+                              C.AST.VarDecl(
+                                tmpName,
+                                C.AST.Type.mpfr_t
+                              )
+                            ),
+                            // Initialize the temporary with proper precision
+                            initMPFR(tmpVar),
+                            // Perform the operation storing result in the temporary
+                            C.AST.ExprStmt(
+                              C.AST.FunCall(
+                                C.AST.DeclRef(mpfrFunc),
+                                immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                              )
+                            ),
+                            // Continue with the temporary variable
+                            C.AST.Stmts(
+                              cont(tmpVar),
+                              // Clean up the temporary after use
+                              clearMPFR(tmpVar)
+                            )
                           )
                         )
                       }

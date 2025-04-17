@@ -1,0 +1,5 @@
+depFun((n: Nat) => fun((n`.`f32) ->: f32)(in =>
+  split(32)(in) |> // 1. split in chunks
+  mapSeq(reduceSeq(add)(lf32(0))) |> // 2. reduce each chunk (can be parallel)
+  reduceSeq(add)(lf32(0)) // 3. reduce the partial sums
+))

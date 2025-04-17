@@ -95,12 +95,16 @@ def main():
                         help='MPFR precision in bits (default: 256)')
     parser.add_argument('-o', '--output', default='driver_compare.c',
                         help='Output driver file name (default: driver_compare.c)')
+    parser.add_argument('-f', '--float_type', default='normal', 
+                        choices=['normal', 'subnormal', 'mixed', 'magnitude'],
+                        help='Type of floating point numbers to generate: normal (default), subnormal, mixed (normal+subnormal), or magnitude (high+low)')
     args = parser.parse_args()
 
     rise_file = args.rise_file
     dimension = args.dimension
     precision = args.precision
     output_file_name = args.output
+    float_type = args.float_type
     
     out_dir = ensure_out_dir()
 
@@ -142,8 +146,8 @@ def main():
     function_name = parsed_info_c_standard["name"]
     edit_mpfr_function_name(c_file_mpfr, function_name)
 
-    # Generate comparison driver code with the specified dimension and precision
-    driver_code = generate_driver(parsed_info_c_standard, rise_code, dimension, precision)
+    # Generate comparison driver code with the specified dimension, precision and float type
+    driver_code = generate_driver(parsed_info_c_standard, rise_code, dimension, precision, float_type)
 
     # Write the driver code to a file in the out directory
     output_file = os.path.join(out_dir, output_file_name)

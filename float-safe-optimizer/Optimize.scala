@@ -3,13 +3,13 @@ package float_safe_optimizer
 import rise.eqsat._
 
 object Optimize {
-  def apply(e: rise.core.Expr): rise.core.Expr = {
+  def apply(e: rise.core.Expr, skipOptimize: Boolean = false): rise.core.Expr = {
     val expr = Expr.fromNamed(e)
     val (body, annotation, wrapBody) = analyseTopLevel(expr)
 
     val rules = {
       import rise.eqsat.rules._
-      Seq(
+      val baseRules = Seq(
         // implementation choices:
         reduceSeq,
         mapSeq,
@@ -21,6 +21,14 @@ object Optimize {
         removeTransposePair,
         fstReduction,
         sndReduction,
+      )
+      
+      // Only include mapPar if not using MPFR
+      if (skipOptimize) {
+        baseRules
+      } else {
+        omp.mapPar +: baseRules
+      }
       /* maybe:
         omp.mapPar --> need heuristic vs mapSeq
         toMemAfterMapSeq / storeToMem
@@ -37,7 +45,6 @@ object Optimize {
         not generic enough, use Elevate passes or custom applier?:
         idxReduction_i_n
       */
-      )
     }
 
     LoweringSearch.init().run(BENF, Cost, Seq(body), rules, Some(annotation)) match {

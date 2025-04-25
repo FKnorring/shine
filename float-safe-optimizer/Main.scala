@@ -10,17 +10,18 @@ object Main {
     val exprSourcePath = args(1)
     val outputPath = args(2)
     val useMPFR = args.length > 3 && args(3).toBoolean
+    val skipOptimize = args.length > 4 && args(4).toBoolean
     println(s"useMPFR: $useMPFR")
+    println(s"skipOptimize: $skipOptimize")
 
     val exprSource = util.readFile(exprSourcePath)
     val untypedExpr = parseExpr(prefixImports(exprSource))
     val typedExpr = untypedExpr.toExpr
-    val optimizedExpr = Optimize(typedExpr)
-    println(optimizedExpr)
+    val finalExpr = Optimize(typedExpr, skipOptimize)
     val code = if (useMPFR) {
-      gen.mpfr.function.asStringFromExpr(optimizedExpr)
+      gen.mpfr.function.asStringFromExpr(finalExpr)
     } else {
-      gen.openmp.function.asStringFromExpr(optimizedExpr)
+      gen.openmp.function.asStringFromExpr(finalExpr)
     }
     util.writeToPath(outputPath, code)
   }

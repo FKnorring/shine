@@ -1,5 +1,6 @@
 depFun((n: Nat) => fun((n`.`f32) ->: f32)(in =>
-  split(32)(in) |> // 1. split in chunks
-  mapSeq(reduceSeq(add)(lf32(0))) |> // 2. reduce each chunk (can be parallel)
+  split(128)(in) |> // 1. split in chunks
+  map(reduceSeq(add)(lf32(0))) |> // 2. reduce each chunk (can be parallel)
+  toMem |> // Add toMem here to convert write access to read access
   reduceSeq(add)(lf32(0)) // 3. reduce the partial sums
 ))

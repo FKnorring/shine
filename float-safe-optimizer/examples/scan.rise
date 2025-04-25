@@ -1,0 +1,5 @@
+depFun((n: Nat) => fun((n`.`f32) ->: (n`.`f32))(xs =>
+  generate(fun(i => 
+    take(i+1)(xs) |> reduceSeq(add)(lf32(0))
+  ))
+)) 

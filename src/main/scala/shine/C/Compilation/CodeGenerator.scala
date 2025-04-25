@@ -1191,19 +1191,45 @@ class CodeGenerator(
       val va = Identifier(s"${v.name}_a", v.t.t2) // acceptor, write to
       val vC = C.AST.DeclRef(v.name)
 
+      // Check if this is an array type with MPFR elements
+      val (isArrayWithMPFR, arraySize) = dt match {
+        case ArrayType(size, elemType) if useMPFR.isDefined && 
+          (elemType == rise.core.types.DataType.f32 || elemType == rise.core.types.DataType.f64) => 
+          (true, size)
+        case _ => (false, null)
+      }
+
+      val initStmt = if (isMPFRType(typ(dt))) {
+        // Single MPFR variable
+        initMPFR(vC)
+      } else if (isArrayWithMPFR) {
+        // Array of MPFR variables
+        generateMPFRArrayInit(vC.name, arraySize)
+      } else {
+        C.AST.Comment("non-MPFR type")
+      }
+
+      val cleanupStmt = if (isMPFRType(typ(dt))) {
+        // Single MPFR variable
+        clearMPFR(vC)
+      } else if (isArrayWithMPFR) {
+        // Array of MPFR variables
+        generateMPFRArrayCleanup(vC.name, arraySize)
+      } else {
+        C.AST.Comment("non-MPFR type")
+      }
+
       C.AST.Block(
         immutable.Seq(
-          C.AST.DeclStmt(C.AST.VarDecl(vC.name, typ(dt))), // mpfr_t
-          // mpfr_init2
-          if (isMPFRType(typ(dt))) initMPFR(vC)
-          else C.AST.Comment("non-MPFR type"),
+          C.AST.DeclStmt(C.AST.VarDecl(vC.name, typ(dt))),
+          // Initialize MPFR variables
+          initStmt,
           Phrase.substitute(PhrasePair(ve, va), `for` = v, `in` = p) |> cmd(
             env updatedIdentEnv (ve -> vC)
               updatedIdentEnv (va -> vC)
           ),
           // Add cleanup for MPFR variables
-          if (isMPFRType(typ(dt))) clearMPFR(vC)
-          else C.AST.Comment("non-MPFR type")
+          cleanupStmt
         )
       )
     }
@@ -2136,5 +2162,60 @@ class CodeGenerator(
 
   protected def isMPFRType(t: C.AST.Type): Boolean = {
     t == C.AST.Type.mpfr_t
+  }
+
+  // Modifying how array variables are declared to properly initialize MPFR arrays
+  // New helper method for generating MPFR array initialization
+  protected def generateMPFRArrayInit(varName: String, size: ArithExpr): Stmt = {
+    val precision = useMPFR.get
+    C.AST.Block(
+      immutable.Seq(
+        C.AST.Comment(s"Initialize the $varName array"),
+        C.AST.ForLoop(
+          C.AST.DeclStmt(C.AST.VarDecl("i", C.AST.Type.int, Some(C.AST.Literal("0")))),
+          C.AST.BinaryExpr(C.AST.DeclRef("i"), C.AST.BinaryOperator.<, C.AST.ArithmeticExpr(size)),
+          C.AST.Assignment(C.AST.DeclRef("i"), C.AST.BinaryExpr(C.AST.DeclRef("i"), C.AST.BinaryOperator.+, C.AST.Literal("1"))),
+          C.AST.Block(
+            immutable.Seq(
+              C.AST.ExprStmt(
+                C.AST.FunCall(
+                  C.AST.DeclRef("mpfr_init2"), 
+                  immutable.Seq(
+                    C.AST.ArraySubscript(C.AST.DeclRef(varName), C.AST.DeclRef("i")),
+                    C.AST.Literal(precision.toString)
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  }
+
+  // New helper method for generating MPFR array cleanup
+  protected def generateMPFRArrayCleanup(varName: String, size: ArithExpr): Stmt = {
+    C.AST.Block(
+      immutable.Seq(
+        C.AST.Comment(s"Clear the $varName array"),
+        C.AST.ForLoop(
+          C.AST.DeclStmt(C.AST.VarDecl("i", C.AST.Type.int, Some(C.AST.Literal("0")))),
+          C.AST.BinaryExpr(C.AST.DeclRef("i"), C.AST.BinaryOperator.<, C.AST.ArithmeticExpr(size)),
+          C.AST.Assignment(C.AST.DeclRef("i"), C.AST.BinaryExpr(C.AST.DeclRef("i"), C.AST.BinaryOperator.+, C.AST.Literal("1"))),
+          C.AST.Block(
+            immutable.Seq(
+              C.AST.ExprStmt(
+                C.AST.FunCall(
+                  C.AST.DeclRef("mpfr_clear"), 
+                  immutable.Seq(
+                    C.AST.ArraySubscript(C.AST.DeclRef(varName), C.AST.DeclRef("i"))
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
   }
 }

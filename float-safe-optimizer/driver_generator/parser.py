@@ -46,6 +46,24 @@ def parse_c_function(c_code: str) -> Dict[str, Any]:
 
     parsed_args = parse_function_arguments(args_str)
     categorized_args = categorize_arguments(parsed_args)
+    
+    # Store the original C code for function type detection
+    categorized_args["code"] = c_code
+    
+    # Check if this is a single-value output function
+    is_single_value = False
+    
+    # Look for patterns that suggest a single value output
+    # Pattern 1: "output[0] = ..." is the only assignment to output
+    output_assignments = re.findall(r"output\[\d+\]\s*=", c_code)
+    if len(output_assignments) == 1 and "output[0]" in output_assignments[0]:
+        is_single_value = True
+    
+    # Pattern 2: Contains a final reduction that assigns to output[0]
+    if re.search(r"reduceSeq.*output\[0\]", c_code, re.DOTALL):
+        is_single_value = True
+        
+    categorized_args["is_single_value"] = is_single_value
 
     return {"name": func_name, **categorized_args}
 

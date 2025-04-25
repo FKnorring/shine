@@ -1,5 +1,5 @@
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 
 
 class ParsingError(Exception):
@@ -68,47 +68,124 @@ def parse_c_function(c_code: str) -> Dict[str, Any]:
     return {"name": func_name, **categorized_args}
 
 
+def extract_dimensions(rise_code: str) -> List[str]:
+    """Extract dimension declarations from the depFun part."""
+    dim_pattern = r"depFun\(\(([^)]+)\)"
+    dim_match = re.search(dim_pattern, rise_code)
+    if not dim_match:
+        raise ParsingError("Could not find dimension declarations")
+    
+    dim_decls = dim_match.group(1)
+    dims = [d.split(":")[0].strip() for d in dim_decls.split(",")]
+    print("Found dimensions:", dims)
+    return dims
+
+
+def extract_inputs_and_output(rise_code: str) -> Tuple[List[str], str]:
+    """Extract input and output types from the function signature.
+    
+    Returns:
+        Tuple[List[str], str]: A tuple containing (list of input types, output type)
+    """
+    # Find the start of the function signature
+    fun_start = rise_code.find("fun(")
+    if fun_start == -1:
+        raise ParsingError("Could not find function signature")
+    
+    # Find the matching closing parenthesis
+    start = fun_start + 4  # Skip "fun("
+    count = 1
+    pos = start
+    
+    while count > 0 and pos < len(rise_code):
+        if rise_code[pos] == '(':
+            count += 1
+        elif rise_code[pos] == ')':
+            count -= 1
+        pos += 1
+    
+    if count != 0:
+        raise ParsingError("Unmatched parentheses in function signature")
+    
+    # Extract the signature
+    signature = rise_code[start:pos-1]  # -1 to exclude the closing parenthesis
+    print("Found signature:", signature)
+    
+    # Split the signature by ->: to separate inputs and output
+    parts = [p.strip() for p in signature.split("->:")]
+    if len(parts) < 2:
+        raise ParsingError("Invalid function signature format")
+    
+    inputs = parts[:-1]
+    output = parts[-1]
+    
+    print("Inputs:", inputs)
+    print("Output:", output)
+    return inputs, output
+
+
+def parse_type(type_str: str) -> Dict[str, Any]:
+    """Parse a single type string into its components.
+    
+    Args:
+        type_str: The type string to parse (e.g. "(n`.`f32)" or "f32")
+    
+    Returns:
+        Dict containing:
+            - is_array: bool indicating if this is an array type
+            - dimensions: List[str] of dimension names (empty for scalar)
+            - size: str representing the size (e.g. "n" or "n * m")
+    """
+    # Check if this is a scalar type
+    if type_str.strip() == "f32":
+        return {
+            "is_array": False,
+            "dimensions": [],
+            "size": "1"
+        }
+    
+    # Parse array type
+    array_pattern = r"\((\w+)`\.`f32\)|\((\w+)`\.`(\w+)`\.`f32\)"
+    match = re.search(array_pattern, type_str)
+    if not match:
+        raise ParsingError(f"Could not parse type: {type_str}")
+    
+    # Check if this is a 1D or 2D array
+    if match.group(1) and not match.group(2):  # 1D array
+        dim = match.group(1)
+        return {
+            "is_array": True,
+            "dimensions": [dim],
+            "size": dim
+        }
+    else:  # 2D array
+        dim1, dim2 = match.group(2), match.group(3)
+        return {
+            "is_array": True,
+            "dimensions": [dim1, dim2],
+            "size": f"{dim1} * {dim2}"
+        }
+
+
 def parse_rise_array_sizes(rise_code: str) -> Dict[str, Any]:
     """Parse the Rise function type to determine array sizes and dimension mapping."""
-    # Extract the type signature between the => fun( and ) parts
-    type_pattern = r"depFun\(\(([^)]+)\)\s*=>\s*fun\(\s*([^)]+)\s*\)"
-    match = re.search(type_pattern, rise_code, re.DOTALL)
-    if not match:
-        raise ParsingError("Could not find Rise function type signature")
-
-    # Parse dimension declarations
-    dim_decls = match.group(1)
-    dims = [d.split(":")[0].strip() for d in dim_decls.split(",")]
-
-    type_sig = match.group(2)
-    print("Type signature:", type_sig)  # Debug print
-
-    # Split into input and output types
-    types = [t.strip() for t in type_sig.split("->:")]
-    print("Types:", types)  # Debug print
-
-    # Extract all array types (input and output)
-    array_pattern = r"\((\w+)`\.`(\w+)`\.`f32\)"
-    array_types = []
-    for t in types:
-        matches = re.findall(array_pattern, t)
-        if matches:
-            array_types.extend(matches)
-    print("Found array types:", array_types)  # Debug print
-
-    # Parse array dimensions for each type
+    # Step 1: Extract dimensions
+    dimensions = extract_dimensions(rise_code)
+    
+    # Step 2: Extract inputs and output
+    inputs, output = extract_inputs_and_output(rise_code)
+    
+    # Step 3: Parse each type
+    parsed_inputs = [parse_type(inp) for inp in inputs]
+    parsed_output = parse_type(output)
+    
+    # Build the final result
     sizes = {
-        "inputs": [],
-        "output": None,
-        "dimensions": dims,  # Store the dimension names
+        "inputs": [inp["size"] for inp in parsed_inputs],
+        "output": parsed_output["size"],
+        "dimensions": dimensions,
+        "is_single_value": not parsed_output["is_array"]
     }
-
-    # The last type is the output type
-    if array_types:
-        sizes["output"] = f"{array_types[-1][0]} * {array_types[-1][1]}"
-        # All but the last type are input types
-        for dim1, dim2 in array_types[:-1]:
-            sizes["inputs"].append(f"{dim1} * {dim2}")
-
-    print("Parsed Rise sizes:", sizes)  # Debug print
+    
+    print("Parsed Rise sizes:", sizes)
     return sizes

@@ -1884,33 +1884,27 @@ class CodeGenerator(
             )
         )
 
-      case Prod(es) =>
-        var (num, denum) = es.partition({
-          case Pow(_, Cst(-1)) => false
-          case _               => true
-        })
-        denum = denum.map({ case Pow(b, Cst(-1)) => b })
-        if (denum.nonEmpty) { // num /^ denum
-          val aNum = num.fold(1: ArithExpr)(_ * _)
-          val aDenum = denum.fold(1: ArithExpr)(_ * _)
-          if (aNum % aDenum != Cst(0)) {
-            println(s"WARNING: $aNum /^ $aDenum might have a fractional part")
-          }
-          genBinopFold(
-            num,
-            AST.BinaryOperator.*,
-            AST.Literal("0"),
-            lhs =>
-              genBinopFold(
-                denum,
-                AST.BinaryOperator.*,
-                AST.Literal("0"),
-                rhs => cont(C.AST.BinaryExpr(lhs, C.AST.BinaryOperator./, rhs))
-              )
-          )
-        } else {
-          genBinopFold(es, AST.BinaryOperator.*, AST.Literal("0"), cont)
-        }
+         case Prod(es) =>
+           var (num, denum) = es.partition({
+             case Pow(_, Cst(-1)) => false
+             case _ => true
+           })
+           denum = denum.map {
+             case Pow(b, Cst(-1)) => b
+             case _ => ???
+            }
+           if (denum.nonEmpty) { // num /^ denum
+             val aNum = num.fold(1: ArithExpr)(_*_)
+             val aDenum = denum.fold(1: ArithExpr)(_*_)
+             if (aNum % aDenum != Cst(0)) {
+               println(s"WARNING: $aNum /^ $aDenum might have a fractional part")
+             }
+             genBinopFold(num, AST.BinaryOperator.*, AST.Literal("0"), lhs =>
+               genBinopFold(denum, AST.BinaryOperator.*, AST.Literal("0"), rhs =>
+                 cont(C.AST.BinaryExpr(lhs, C.AST.BinaryOperator./, rhs))))
+           } else {
+             genBinopFold(es, AST.BinaryOperator.*, AST.Literal("0"), cont)
+           }
 
       case Sum(es) =>
         genBinopFold(es, AST.BinaryOperator.+, AST.Literal("0"), cont)

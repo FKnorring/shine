@@ -81,8 +81,24 @@ def extract_dimensions(rise_code: str) -> List[str]:
     return dims
 
 
-def extract_inputs_and_output(rise_code: str) -> Tuple[List[str], str]:
-    """Extract input and output types from the function signature.
+def detect_rise_style(rise_code: str) -> str:
+    """Detect whether the Rise code uses arrow notation or nested functions.
+    
+    Returns:
+        str: Either 'arrow' for ->: notation or 'nested' for nested function style
+    """
+    # Check for arrow notation (examples style)
+    if "->:" in rise_code:
+        return "arrow"
+    # Check for nested function style (benchmarks style)
+    elif re.search(r"fun\([\w\d\`\.]+\)\([\w\d]+ =>", rise_code):
+        return "nested"
+    else:
+        raise ParsingError("Could not determine the Rise code style")
+
+
+def extract_inputs_and_output_arrow_style(rise_code: str) -> Tuple[List[str], str]:
+    """Extract input and output types from the function signature using arrow notation.
     
     Returns:
         Tuple[List[str], str]: A tuple containing (list of input types, output type)
@@ -124,6 +140,58 @@ def extract_inputs_and_output(rise_code: str) -> Tuple[List[str], str]:
     return inputs, output
 
 
+def extract_nested_function_types(rise_code: str) -> Tuple[List[str], str]:
+    """Extract input and output types from nested function style (benchmarks style).
+    
+    Returns:
+        Tuple[List[str], str]: A tuple containing (list of input types, output type)
+    """
+    # This regex looks for patterns like fun(_A`.`f64)(x => 
+    input_pattern = r"fun\(([\w\d\`\.]+)\)\(([\w\d]+) =>"
+    inputs = []
+    
+    # Find all input type patterns
+    for match in re.finditer(input_pattern, rise_code):
+        input_type = match.group(1)
+        inputs.append(input_type)
+    
+    # Determine output type
+    # For nested functions, the output is often determined by the final operation
+    # We'll need to look for makeArray or return patterns
+    
+    # Common pattern: makeArray with a specific size indicates output dimensions
+    make_array_pattern = r"makeArray\((\d+)\)"
+    make_array_match = re.search(make_array_pattern, rise_code)
+    
+    if make_array_match:
+        array_size = make_array_match.group(1)
+        # For benchmarks, most functions return an array with specific dimensions
+        output = f"{array_size}`.`f64"
+    else:
+        # If no makeArray is found, we assume it returns a scalar
+        output = "f64"  # Default to f64 for benchmarks
+    
+    print("Nested function inputs:", inputs)
+    print("Nested function output:", output)
+    return inputs, output
+
+
+def extract_inputs_and_output(rise_code: str) -> Tuple[List[str], str]:
+    """Extract input and output types from the function signature based on the detected style.
+    
+    Returns:
+        Tuple[List[str], str]: A tuple containing (list of input types, output type)
+    """
+    style = detect_rise_style(rise_code)
+    
+    if style == "arrow":
+        return extract_inputs_and_output_arrow_style(rise_code)
+    elif style == "nested":
+        return extract_nested_function_types(rise_code)
+    else:
+        raise ParsingError(f"Unsupported Rise code style: {style}")
+
+
 def parse_type(type_str: str) -> Dict[str, Any]:
     """Parse a single type string into its components.
     
@@ -137,7 +205,7 @@ def parse_type(type_str: str) -> Dict[str, Any]:
             - size: str representing the size (e.g. "n" or "n * m")
     """
     # Check if this is a scalar type
-    if type_str.strip() == "f32":
+    if type_str.strip() in ["f32", "f64"]:
         return {
             "is_array": False,
             "dimensions": [],
@@ -145,26 +213,26 @@ def parse_type(type_str: str) -> Dict[str, Any]:
         }
     
     # Parse array type
-    array_pattern = r"\((\w+)`\.`f32\)|\((\w+)`\.`(\w+)`\.`f32\)"
+    array_pattern = r"\((\w+)`\.`(f32|f64)\)|\((\w+)`\.`(\w+)`\.`(f32|f64)\)|\((\w+)`\.`(\w+)`\.`(\w+)`\.`(f32|f64)\)|(\w+)`\.`(f32|f64)|(\w+)`\.`(\w+)`\.`(f32|f64)|(\w+)`\.`(\w+)`\.`(\w+)`\.`(f32|f64)"
     match = re.search(array_pattern, type_str)
+    
     if not match:
         raise ParsingError(f"Could not parse type: {type_str}")
     
-    # Check if this is a 1D or 2D array
-    if match.group(1) and not match.group(2):  # 1D array
-        dim = match.group(1)
-        return {
-            "is_array": True,
-            "dimensions": [dim],
-            "size": dim
-        }
-    else:  # 2D array
-        dim1, dim2 = match.group(2), match.group(3)
-        return {
-            "is_array": True,
-            "dimensions": [dim1, dim2],
-            "size": f"{dim1} * {dim2}"
-        }
+    # Get all matched groups and remove None values
+    groups = [g for g in match.groups() if g is not None]
+    
+    # The last element will be the base type (f32 or f64)
+    base_type = groups[-1]
+    
+    # The rest are dimensions
+    dimensions = [d for d in groups[:-1] if d not in ["f32", "f64"]]
+    
+    return {
+        "is_array": len(dimensions) > 0,
+        "dimensions": dimensions,
+        "size": " * ".join(dimensions) if dimensions else "1"
+    }
 
 
 def parse_rise_array_sizes(rise_code: str) -> Dict[str, Any]:
@@ -189,3 +257,42 @@ def parse_rise_array_sizes(rise_code: str) -> Dict[str, Any]:
     
     print("Parsed Rise sizes:", sizes)
     return sizes
+
+
+def main():
+    """Main entry point for standalone script usage."""
+    import argparse
+    import sys
+    
+    parser = argparse.ArgumentParser(description='Parse RISE file to extract array sizes and dimensions')
+    parser.add_argument('rise_file', help='Path to the RISE source file')
+    args = parser.parse_args()
+    
+    try:
+        # Read the RISE file
+        with open(args.rise_file, 'r') as f:
+            rise_code = f.read()
+        
+        # Parse the file
+        sizes = parse_rise_array_sizes(rise_code)
+        
+        # Print formatted output
+        print("\nParsed RISE file information:")
+        print(f"Dimensions: {', '.join(sizes['dimensions'])}")
+        print(f"Input sizes: {', '.join(sizes['inputs'])}")
+        print(f"Output size: {sizes['output']}")
+        print(f"Single value output: {sizes['is_single_value']}")
+        
+    except FileNotFoundError:
+        print(f"Error: Could not find file '{args.rise_file}'")
+        sys.exit(1)
+    except ParsingError as e:
+        print(f"Error parsing RISE file: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

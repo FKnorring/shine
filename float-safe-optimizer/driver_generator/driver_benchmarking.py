@@ -51,15 +51,12 @@ def run_benchmark_iterations(base_name: str, dimensions: List[str], inputs: List
 def sort_arrays(iterations: int) -> str:
     return f"""
   // Sort the time arrays for calculating median and quantiles
-  double* sorted_unopt_times = malloc({iterations} * sizeof(double));
-  double* sorted_opt_times = malloc({iterations} * sizeof(double));
   memcpy(sorted_unopt_times, unopt_times, {iterations} * sizeof(double));
   memcpy(sorted_opt_times, opt_times, {iterations} * sizeof(double));
   qsort(sorted_unopt_times, {iterations}, sizeof(double), compare_doubles);
   qsort(sorted_opt_times, {iterations}, sizeof(double), compare_doubles);
   
   // Sort the optimized results for statistical analysis
-  float* sorted_opt_results = malloc({iterations} * sizeof(float));
   memcpy(sorted_opt_results, opt_results, {iterations} * sizeof(float));
   qsort(sorted_opt_results, {iterations}, sizeof(float), compare_floats);"""
 

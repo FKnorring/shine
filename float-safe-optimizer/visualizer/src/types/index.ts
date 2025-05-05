@@ -1,14 +1,31 @@
+export interface ArrayInputConfig {
+  size: number;
+  float_type?: 'normal' | 'subnormal' | 'mixed' | 'magnitude';
+  include_negatives?: boolean;
+  values?: number[];
+}
+
+export interface InputConfig {
+  dimensions?: Record<string, number>;
+  inputs: Array<number | ArrayInputConfig>;
+  output?: {
+    size: number;
+  };
+}
+
 export interface DriverGenOptions {
   unoptRiseFile: string;
   optRiseFile?: string;
-  dimension?: number;
-  iterations?: number;
-  precision?: number;
-  outputFile?: string;
-  floatType?: 'normal' | 'subnormal' | 'mixed' | 'magnitude';
+  dimension: number;
+  iterations: number;
+  precision: number;
+  outputFile: string;
+  floatType: string;
   prefix?: string;
-  includeNegatives?: boolean;
-  metricsFile?: string;
+  includeNegatives: boolean;
+  metricsFile: string;
+  skipCompilation?: boolean;
+  inputConfig?: InputConfig;
 }
 
 export interface OutFile {
@@ -23,29 +40,25 @@ export interface OutFile {
 }
 
 export interface MetricsData {
-  // Configuration
-  dimension?: number;
-  float_type?: string;
-  include_negatives?: boolean;
-  precision?: number;
-  iterations?: number;
-  
-  // Performance metrics
-  unopt_time?: number;
-  opt_time?: number;
-  mpfr_time?: number;
-  speedup?: number;
-  
-  // Accuracy metrics
-  unopt_value?: number;
-  opt_value?: number;
-  mpfr_value?: number;
-  unopt_abs_error?: number;
-  opt_mean_abs_error?: number;
-  unopt_rel_error?: number;
-  opt_mean_rel_error?: number;
-  unopt_ulps?: number;
-  opt_mean_ulps?: number;
+  summary: {
+    dimension: number;
+    optimized_time: number;
+    unoptimized_time: number;
+    mpfr_time: number;
+    max_abs_error: number;
+    max_rel_error: number;
+    avg_abs_error: number;
+    avg_rel_error: number;
+    speedup_vs_unopt: number;
+    speedup_vs_mpfr: number;
+  };
+  iterations?: {
+    abs_errors: number[];
+    rel_errors: number[];
+    opt_times: number[];
+    unopt_times: number[];
+    opt_results?: number[];
+  };
 }
 
 export interface CommandOutput {

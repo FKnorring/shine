@@ -524,6 +524,9 @@ object rules {
   val iterateStream = NamedRewrite.init("iterate-stream",
     map --> rcp.iterateStream.primitive
   )
+  val scanSeq = NamedRewrite.init("scan-seq",
+    rcp.scanSeq.primitive --> rcp.scanSeq.primitive
+  )
   val toMemAfterMapSeq = NamedRewrite.init("to-mem-after-map-seq",
     app(app(rcp.mapSeq.primitive, "f"), "in")
       -->

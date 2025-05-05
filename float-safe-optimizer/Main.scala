@@ -4,6 +4,7 @@ import util.gen
 import rise.core.Expr
 import rise.core.DSL.ToBeTyped
 
+
 object Main {
   def main(args: Array[String]): Unit = {
     val name = args(0)
@@ -28,6 +29,7 @@ object Main {
 
   def prefixImports(source: String): String =
     s"""
+       |import arithexpr.arithmetic._  
        |import rise.core.DSL._
        |import rise.core.DSL.Type._
        |import rise.core.DSL.HighLevelConstructs._

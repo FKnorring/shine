@@ -1,0 +1,31 @@
+depFun((_A: Nat) => 
+  fun(_A`.`f64)(t => fun(_A`.`f64)(w => 
+    fun(h => 
+      fun(L => 
+        fun(g => 
+          fun(iter => 
+            fun(init => 
+              iter |> reduceSeq(fun(acc => fun(x => 
+                fun(kt => 
+                  fun(kw => 
+                    fun(v => 
+                      zip(acc)(v |> map(fun(_ * h))) |> map(fun(_a => fst(_a) + snd(_a)))
+                    )
+                    (makeArray(2)(kt)(kw) |> mapSeqUnroll(fun(x => x)) |> toMem)
+                  )
+                  (((-(g) / L) * foreignFun("sin", f64 ->: f64)(acc |> element(0))))
+                )
+                (acc |> element(1))
+              )))(init)
+            )
+            (makeArray(2)(t |> element(0))(w |> element(0)) |> mapSeqUnroll(fun(x => x)) |> toMem)
+          )
+          (zip(t)(w))
+        )
+        (lf64(9.80665))
+      )
+      (lf64(2.0))
+    )
+    (lf64(0.01))
+  ))
+)

@@ -1,5 +1,0 @@
-depFun((n: Nat) => fun((n`.`f32) ->: (n`.`f32))(xs =>
-  generate(fun(i => 
-    element(natAsIndex(n)(RangeAdd(indexAsNat(i), 1, 1)))(xs) |> reduceSeq(add)(lf32(0))
-  ))
-)) 

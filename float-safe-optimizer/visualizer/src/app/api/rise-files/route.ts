@@ -7,9 +7,9 @@ const execAsync = promisify(exec);
 export async function GET() {
   try {
     // Find all .rise files in the examples directory
-    const command = `cd .. && find examples -name "*.rise" | sort`;
+    const command = `cd .. && find -name "*.rise" | sort`;
     
-    const { stdout, stderr } = await execAsync(command);
+    const { stdout } = await execAsync(command);
     
     // Parse the output into an array of file paths
     const riseFiles = stdout.trim().split('\n').filter(Boolean);

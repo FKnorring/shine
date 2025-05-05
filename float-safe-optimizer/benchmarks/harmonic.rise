@@ -1,0 +1,15 @@
+depFun((_A: Nat, _B: Nat) => 
+  fun(_A`.`f64)(x => fun(_B`.`f64)(y => 
+    fun(x1 => 
+      fun(x2 => 
+        makeArray(2)(x1)(x2) |> mapSeqUnroll(fun(x => x)) |> toMem
+      )
+      (x |> reduceSeq(fun(acc => fun(xi => 
+        ((lf64(-0.01) * xi) + (lf64(0.99) * acc))
+      )))(y |> element(0)))
+    )
+    (y |> reduceSeq(fun(acc => fun(xi => 
+      (acc + (lf64(0.01) * xi))
+    )))(x |> element(0)))
+  ))
+)

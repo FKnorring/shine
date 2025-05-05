@@ -1,0 +1,7 @@
+depFun((_A: Nat) => 
+  fun(_A`.`f64)(x => fun(f64)(y => 
+    x |> reduceSeq(fun(acc => fun(xi => 
+      ((lf64(0.75) * xi) - (lf64(0.125) * acc))
+    )))(y)
+  ))
+)

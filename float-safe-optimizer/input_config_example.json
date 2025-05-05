@@ -1,0 +1,23 @@
+{
+  "dimensions": {
+    "N": 128,
+    "M": 64
+  },
+  "inputs": [
+    {
+      "size": 128,
+      "float_type": "normal",
+      "include_negatives": true,
+      "values": [1.0, 2.0, 3.0, 4.0]
+    },
+    {
+      "size": 64,
+      "float_type": "subnormal",
+      "include_negatives": false
+    },
+    42.0
+  ],
+  "output": {
+    "size": 128
+  }
+} 

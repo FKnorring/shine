@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import path from 'path';
-import fs from 'fs/promises';
+import { NextRequest, NextResponse } from "next/server";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { DriverGenOptions } from "@/types";
+import * as fs from 'fs';
 
 const execAsync = promisify(exec);
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.json();
+    const data: DriverGenOptions = await req.json();
     const {
       unoptRiseFile,
       optRiseFile,
@@ -20,61 +20,93 @@ export async function POST(req: NextRequest) {
       prefix,
       includeNegatives,
       metricsFile,
-    } = formData;
+      skipCompilation,
+      inputConfig
+    } = data;
+
+    console.log(data);
+    console.log(inputConfig);
 
     // Validate required fields
     if (!unoptRiseFile) {
-      return NextResponse.json(
-        { error: 'Unoptimized RISE file is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing required field: unoptRiseFile" });
     }
 
-    // Build command - make sure to cd into the driver_generator directory so that the "out" directory is created there
-    let command = `cd ../driver_generator && python3 driver_gen.py "../${unoptRiseFile}"`;
+    // Build the command
+    const riseDir = process.cwd() + "/../";
+    const driverGenDir = "../driver_generator";
+    
+    let command = `cd ${driverGenDir} && python3 driver_gen.py "${riseDir}${unoptRiseFile}"`;
 
+    // Add optional arguments
     if (optRiseFile) {
-      command += ` -o "../${optRiseFile}"`;
+      command += ` -o "${riseDir}${optRiseFile}"`;
     }
+
     if (dimension) {
       command += ` -d ${dimension}`;
     }
+
     if (iterations) {
       command += ` -i ${iterations}`;
     }
+
     if (precision) {
       command += ` -p ${precision}`;
     }
+
     if (outputFile) {
       command += ` --output "${outputFile}"`;
     }
+
     if (floatType) {
       command += ` -f ${floatType}`;
     }
+
     if (prefix) {
       command += ` --prefix "${prefix}"`;
     }
+
     if (includeNegatives) {
       command += ` --include_negatives`;
     }
+
     if (metricsFile) {
       command += ` --metrics_file "${metricsFile}"`;
+    }
+    
+    if (skipCompilation) {
+      command += ` --skip_compilation`;
+    }
+
+    // Add input configuration if provided
+    let tempConfigFile: string | null = null;
+    if (inputConfig) {
+      // Create a temporary file for the input configuration
+      tempConfigFile = `/tmp/input_config_${Date.now()}.json`;
+      fs.writeFileSync(tempConfigFile, JSON.stringify(inputConfig));
+      command += ` --input_config "${tempConfigFile}"`;
     }
 
     console.log(`Executing command: ${command}`);
 
+    // Execute the command
     const { stdout, stderr } = await execAsync(command);
-    
-    return NextResponse.json({
-      success: true,
-      stdout,
-      stderr,
-    });
+
+    // Clean up temporary file if it was created
+    if (tempConfigFile) {
+      try {
+        fs.unlinkSync(tempConfigFile);
+      } catch (error) {
+        console.error("Error cleaning up temporary config file:", error);
+      }
+    }
+
+    return NextResponse.json({ stdout, stderr });
   } catch (error) {
-    console.error('Error running driver generator:', error);
-    return NextResponse.json(
-      { error: `Failed to run driver generator: ${error instanceof Error ? error.message : String(error)}` },
-      { status: 500 }
-    );
+    console.error("Error:", error);
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    });
   }
 } 

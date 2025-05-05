@@ -1,0 +1,21 @@
+depFun((_A: Nat) => 
+  fun(_A`.`f64)(x => 
+    fun(n => 
+      fun(y => 
+        fun(avg => 
+          fun(z => 
+            foreignFun("sqrt", f64 ->: f64)((z / n))
+          )
+          (x |> reduceSeq(fun(acc => fun(i => 
+            (acc + ((i - avg) * (i - avg)))
+          )))(lf64(0.0)))
+        )
+        ((y / n))
+      )
+      (x |> reduceSeq(fun(_tmp_sum_acc => fun(_tmp_sum_x => 
+        (_tmp_sum_acc + _tmp_sum_x)
+      )))(lf64(0.0)))
+    )
+    (length(x) |> cast)
+  )
+)

@@ -1,0 +1,5 @@
+depFun((_A: Nat, _B: Nat) => 
+  fun(_A`.`_B`.`f64)(b => fun(_A`.`_B`.`f64)(c => fun(f64)(alpha => 
+    zipND(2)(b |> mapND(2)(fun(_ * alpha)))(c |> mapND(2)(fun(_ * (lf64(1) - alpha)))) |> mapND(2)(fun(_a => fst(_a) + snd(_a)))
+  )))
+)

@@ -13,6 +13,7 @@ object Optimize {
         // implementation choices:
         reduceSeq,
         mapSeq,
+        scanSeq,
         // satisfying read/write annotations:
         mapSeqArray,
         // simplifications:

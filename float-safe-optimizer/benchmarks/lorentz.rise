@@ -1,0 +1,28 @@
+depFun((_A: Nat) => 
+  fun(_A`.`3`.`f64)(m => 
+    fun(init => 
+      m |> reduceSeq(fun(acc => fun(v => 
+        fun(x => 
+          fun(y => 
+            fun(z => 
+              fun(tmpx => 
+                fun(tmpy => 
+                  fun(tmpz => 
+                    makeArray(3)(tmpx)(tmpy)(tmpz) |> mapSeqUnroll(fun(x => x)) |> toMem
+                  )
+                  ((z + (((x * y) - (lf64(2.666667) * z)) * lf64(0.005))))
+                )
+                ((y + ((((lf64(28.0) * x) - y) - (x * z)) * lf64(0.005))))
+              )
+              ((x + ((lf64(10.0) * (y - x)) * lf64(0.005))))
+            )
+            (acc |> element(2))
+          )
+          (acc |> element(1))
+        )
+        (acc |> element(0))
+      )))(init)
+    )
+    (m |> element(0))
+  )
+)

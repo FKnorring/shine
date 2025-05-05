@@ -88,6 +88,11 @@ def edit_function_names(unopt_file: str, mpfr_file: str, opt_file: str) -> None:
         mpfr_file: Path to MPFR C file
         opt_file: Path to optimized C file
     """
+    # Check if files exist first
+    for file_path in [unopt_file, mpfr_file, opt_file]:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File does not exist: {file_path}")
+    
     # Get the base name from the file names
     base_name = os.path.basename(unopt_file).replace("_unopt.c", "")
     

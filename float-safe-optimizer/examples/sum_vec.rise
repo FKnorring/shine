@@ -1,5 +1,5 @@
-fun((32768`.`f32) ->: f32)(in =>
-  split(8192)(in) |> // read
+depFun((n: Nat) => fun((n`.`f32) ->: f32)(in =>
+  split(131072)(in) |> // read
   map( // mapSeq/mapPar : read -> write
     asVectorAligned(4) >> // read
     reduceSeq(add)(vectorFromScalar(lf32(0))) >> // read
@@ -11,4 +11,4 @@ fun((32768`.`f32) ->: f32)(in =>
   ) |>
   toMem |> // write -> read
   reduceSeq(add)(lf32(0)) // read : scalar -> write
-)
+))

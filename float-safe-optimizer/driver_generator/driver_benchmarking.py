@@ -33,10 +33,8 @@ def run_benchmark_iterations(base_name: str, dimensions: List[str], inputs: List
     double end_time = get_time_in_seconds();
     unopt_times[iter] = end_time - start_time;
     
-    // Save the first unoptimized result for comparison
-    if (iter == 0) {{
-      unopt_first_val = output_unopt[0];
-    }}
+    // Store the unoptimized result for this iteration
+    unopt_results[iter] = output_unopt[0];
     
     // Run optimized version
     start_time = get_time_in_seconds();
@@ -96,6 +94,13 @@ def calculate_result_statistics(iterations: int) -> str:
     opt_mean_result += opt_results[i];
   }}
   opt_mean_result /= {iterations};
+
+  // Calculate mean of unoptimized results
+  double unopt_mean_result = 0.0;
+  for (int i = 0; i < {iterations}; i++) {{
+    unopt_mean_result += unopt_results[i];
+  }}
+  unopt_mean_result /= {iterations};
   
   // Calculate median of optimized results
   double opt_median_result = sorted_opt_results[{iterations} / 2];
@@ -114,10 +119,8 @@ def calculate_result_statistics(iterations: int) -> str:
 
 def calculate_errors(precision: int) -> str:
     return f"""
-  // Convert unoptimized result to MPFR for error calculation
-  mpfr_set_d(unopt_mpfr_temp, unopt_first_val, MPFR_RNDN);
-  
   // Calculate absolute error for unoptimized result
+  mpfr_set_d(unopt_mpfr_temp, unopt_mean_result, MPFR_RNDN);
   mpfr_sub(mpfr_diff_unopt_temp, unopt_mpfr_temp, output_mpfr[0], MPFR_RNDN);
   mpfr_abs(mpfr_diff_unopt_temp, mpfr_diff_unopt_temp, MPFR_RNDN);
   double unopt_error = mpfr_get_d(mpfr_diff_unopt_temp, MPFR_RNDN);

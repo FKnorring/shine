@@ -7,6 +7,8 @@ const execAsync = promisify(exec);
 export async function POST(req: NextRequest) {
   try {
     const { driverPath } = await req.json();
+
+    console.log(driverPath);
     
     if (!driverPath) {
       return NextResponse.json(

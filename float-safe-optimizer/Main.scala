@@ -18,7 +18,9 @@ object Main {
     val exprSource = util.readFile(exprSourcePath)
     val untypedExpr = parseExpr(prefixImports(exprSource))
     val typedExpr = untypedExpr.toExpr
+    println("typedExpr", typedExpr)
     val finalExpr = Optimize(typedExpr, skipOptimize)
+    println("optimizedExpr", finalExpr)
     val code = if (useMPFR) {
       gen.mpfr.function.asStringFromExpr(finalExpr)
     } else {

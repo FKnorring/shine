@@ -8,6 +8,6 @@ depFun((_A: Nat) =>
         (_tmp_sum_acc + _tmp_sum_x)
       )))(lf64(0.0)))
     )
-    (length(x))
+    (length(x) |> cast)
   )
 )

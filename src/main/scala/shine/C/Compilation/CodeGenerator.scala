@@ -603,8 +603,53 @@ class CodeGenerator(
                         val tmpName = freshName("mpfr_tmp")
                         val tmpVar = C.AST.DeclRef(tmpName)
                         
+                        // Handle special case for division with integer
+                        val operationStmt = (e1, e2, op) match {
+                          // Special case: MPFR value divided by integer
+                          case (_, C.AST.ArithmeticExpr(_) | C.AST.DeclRef(_) | C.AST.Literal(_), Operators.Binary.DIV) =>
+                            C.AST.ExprStmt(
+                              C.AST.FunCall(
+                                C.AST.DeclRef("mpfr_div_si"),
+                                immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                              )
+                            )
+                          // Special case: integer divided by MPFR value
+                          case (C.AST.ArithmeticExpr(_) | C.AST.DeclRef(_) | C.AST.Literal(_), _, Operators.Binary.DIV) =>
+                            // Need a temporary MPFR for the integer
+                            val intTmpName = freshName("mpfr_tmp_int")
+                            val intTmpVar = C.AST.DeclRef(intTmpName)
+                            
+                            C.AST.Block(
+                              immutable.Seq(
+                                C.AST.DeclStmt(C.AST.VarDecl(intTmpName, C.AST.Type.mpfr_t)),
+                                initMPFR(intTmpVar),
+                                C.AST.ExprStmt(
+                                  C.AST.FunCall(
+                                    C.AST.DeclRef("mpfr_set_si"),
+                                    immutable.Seq(intTmpVar, e1, C.AST.DeclRef("MPFR_RNDN"))
+                                  )
+                                ),
+                                C.AST.ExprStmt(
+                                  C.AST.FunCall(
+                                    C.AST.DeclRef("mpfr_div"),
+                                    immutable.Seq(tmpVar, intTmpVar, e2, C.AST.DeclRef("MPFR_RNDN"))
+                                  )
+                                ),
+                                clearMPFR(intTmpVar)
+                              )
+                            )
+                          // Default case: normal MPFR operation
+                          case _ =>
+                            C.AST.ExprStmt(
+                              C.AST.FunCall(
+                                C.AST.DeclRef(mpfrFunc),
+                                immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                              )
+                            )
+                        }
+                        
                         // First create a block that declares, initializes and computes the result
-                        C.AST.Block(
+                        val block = C.AST.Block(
                           immutable.Seq(
                             // Declare the temporary mpfr_t variable
                             C.AST.DeclStmt(
@@ -615,13 +660,44 @@ class CodeGenerator(
                             ),
                             // Initialize the temporary with proper precision
                             initMPFR(tmpVar),
-                            // Perform the operation storing result in the temporary
-                            C.AST.ExprStmt(
-                              C.AST.FunCall(
-                                C.AST.DeclRef(mpfrFunc),
-                                immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                            // Perform the operation 
+                            // In division operations, make sure to handle integer division correctly
+                            if (op == Operators.Binary.DIV) {
+                              e2 match {
+                                case C.AST.DeclRef(name) if name.startsWith("mpfr_tmp") =>
+                                  // Already an MPFR temporary - use standard mpfr_div
+                                  C.AST.ExprStmt(
+                                    C.AST.FunCall(
+                                      C.AST.DeclRef(mpfrFunc),
+                                      immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                                    )
+                                  )
+                                case C.AST.ArithmeticExpr(_) | C.AST.DeclRef(_) | C.AST.Literal(_) =>
+                                  // MPFR divided by integer - use mpfr_div_si
+                                  C.AST.ExprStmt(
+                                    C.AST.FunCall(
+                                      C.AST.DeclRef("mpfr_div_si"),
+                                      immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                                    )
+                                  )
+                                case _ =>
+                                  // Standard MPFR division for other cases
+                                  C.AST.ExprStmt(
+                                    C.AST.FunCall(
+                                      C.AST.DeclRef(mpfrFunc),
+                                      immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                                    )
+                                  )
+                              }
+                            } else {
+                              // For non-division operations
+                              C.AST.ExprStmt(
+                                C.AST.FunCall(
+                                  C.AST.DeclRef(mpfrFunc),
+                                  immutable.Seq(tmpVar, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+                                )
                               )
-                            ),
+                            },
                             // Continue with the temporary variable
                             C.AST.Stmts(
                               cont(tmpVar),
@@ -630,6 +706,8 @@ class CodeGenerator(
                             )
                           )
                         )
+                        
+                        block
                       }
                     )
                 )
@@ -654,7 +732,45 @@ class CodeGenerator(
     case Cast(_, dt, e) =>
       path match {
         case Nil =>
-          e |> exp(env, Nil, e => cont(C.AST.Cast(typ(dt), e)))
+          if (isMPFRType(typ(dt))) {
+            // When an integer is cast to an MPFR type, we need to use mpfr_set_si
+            // instead of a C cast which would be invalid
+            e |> exp(env, Nil, e => {
+              // Create a temporary variable for the result
+              val tmpName = freshName("mpfr_tmp")
+              val tmpVar = C.AST.DeclRef(tmpName)
+              
+              C.AST.Block(
+                immutable.Seq(
+                  // Declare the temporary mpfr_t variable
+                  C.AST.DeclStmt(
+                    C.AST.VarDecl(
+                      tmpName,
+                      C.AST.Type.mpfr_t
+                    )
+                  ),
+                  // Initialize the temporary with proper precision
+                  initMPFR(tmpVar),
+                  // Set the value from the integer
+                  C.AST.ExprStmt(
+                    C.AST.FunCall(
+                      C.AST.DeclRef("mpfr_set_si"),
+                      immutable.Seq(tmpVar, e, C.AST.DeclRef("MPFR_RNDN"))
+                    )
+                  ),
+                  // Continue with the temporary variable
+                  C.AST.Stmts(
+                    cont(tmpVar),
+                    // Clean up the temporary after use
+                    clearMPFR(tmpVar)
+                  )
+                )
+              )
+            })
+          } else {
+            // Normal C cast for non-MPFR types
+            e |> exp(env, Nil, e => cont(C.AST.Cast(typ(dt), e)))
+          }
         case _ => error(s"Expected path to be empty")
       }
 
@@ -2156,6 +2272,189 @@ class CodeGenerator(
 
   protected def isMPFRType(t: C.AST.Type): Boolean = {
     t == C.AST.Type.mpfr_t
+  }
+  
+  // Determine if an expression is MPFR type
+  protected def isExprMPFRType(expr: Expr): Boolean = {
+    expr match {
+      case C.AST.DeclRef(_) => 
+        // We can't directly get the type from DeclRef, so let's be conservative
+        // and assume it's not MPFR type unless we have more context
+        false
+      case C.AST.Cast(tpe, _) => tpe == C.AST.Type.mpfr_t
+      case C.AST.FunCall(C.AST.DeclRef(name), _) if name.startsWith("mpfr_") => true
+      case C.AST.ArraySubscript(array, _) =>
+        // Array of MPFR values
+        array match {
+          case C.AST.DeclRef(name) => 
+            // This is a heuristic since we can't directly get the type
+            name.endsWith("_mpfr") || name.contains("mpfr")
+          case _ => false
+        }
+      case _ => false
+    }
+  }
+  
+  // Generate appropriate MPFR operation based on operand types
+  protected def generateMPFRBinaryOperation(
+      result: Expr, 
+      e1: Expr, 
+      e2: Expr, 
+      e1IsMpfr: Boolean, 
+      e2IsMpfr: Boolean, 
+      mpfrFunc: String): immutable.Seq[Stmt] = {
+      
+    if (e1IsMpfr && e2IsMpfr) {
+      // Both operands are MPFR, use standard MPFR binary operation
+      immutable.Seq(
+        C.AST.ExprStmt(
+          C.AST.FunCall(
+            C.AST.DeclRef(mpfrFunc),
+            immutable.Seq(result, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+          )
+        )
+      )
+    } else if (e1IsMpfr && !e2IsMpfr) {
+      // First operand is MPFR, second is not
+      e2 match {
+        case C.AST.ArithmeticExpr(_) | C.AST.DeclRef(_) if mpfrFunc == "mpfr_div" =>
+          // For integer division, use mpfr_div_si
+          immutable.Seq(
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef("mpfr_div_si"),
+                immutable.Seq(result, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            )
+          )
+        case C.AST.ArithmeticExpr(_) | C.AST.DeclRef(_) =>
+          // For other operations with integer, use appropriate function
+          val funcSuffix = mpfrFunc.substring(5) // Remove "mpfr_" prefix
+          immutable.Seq(
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef(s"mpfr_${funcSuffix}_si"),
+                immutable.Seq(result, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            )
+          )
+        case C.AST.Literal(value) if value.contains(".") =>
+          // For floating point literal, use mpfr_<op>_d
+          val funcSuffix = mpfrFunc.substring(5) // Remove "mpfr_" prefix
+          immutable.Seq(
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef(s"mpfr_${funcSuffix}_d"),
+                immutable.Seq(result, e1, e2, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            )
+          )
+        case _ =>
+          // Create temporary MPFR for second operand
+          val tmpName = freshName("mpfr_tmp_op")
+          val tmpVar = C.AST.DeclRef(tmpName)
+          
+          immutable.Seq(
+            C.AST.DeclStmt(C.AST.VarDecl(tmpName, C.AST.Type.mpfr_t)),
+            initMPFR(tmpVar),
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef("mpfr_set_si"),
+                immutable.Seq(tmpVar, e2, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            ),
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef(mpfrFunc),
+                immutable.Seq(result, e1, tmpVar, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            ),
+            clearMPFR(tmpVar)
+          )
+      }
+    } else if (!e1IsMpfr && e2IsMpfr) {
+      // First operand is not MPFR, second is
+      e1 match {
+        case C.AST.ArithmeticExpr(_) | C.AST.DeclRef(_) =>
+          // For operations with integer, use appropriate function
+          val funcSuffix = mpfrFunc.substring(5) // Remove "mpfr_" prefix
+          immutable.Seq(
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef(s"mpfr_${funcSuffix}_si"),
+                immutable.Seq(result, e2, e1, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            )
+          )
+        case C.AST.Literal(value) if value.contains(".") =>
+          // For floating point literal, use mpfr_<op>_d
+          val funcSuffix = mpfrFunc.substring(5) // Remove "mpfr_" prefix
+          immutable.Seq(
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef(s"mpfr_${funcSuffix}_d"),
+                immutable.Seq(result, e2, e1, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            )
+          )
+        case _ =>
+          // Create temporary MPFR for first operand
+          val tmpName = freshName("mpfr_tmp_op")
+          val tmpVar = C.AST.DeclRef(tmpName)
+          
+          immutable.Seq(
+            C.AST.DeclStmt(C.AST.VarDecl(tmpName, C.AST.Type.mpfr_t)),
+            initMPFR(tmpVar),
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef("mpfr_set_si"),
+                immutable.Seq(tmpVar, e1, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            ),
+            C.AST.ExprStmt(
+              C.AST.FunCall(
+                C.AST.DeclRef(mpfrFunc),
+                immutable.Seq(result, tmpVar, e2, C.AST.DeclRef("MPFR_RNDN"))
+              )
+            ),
+            clearMPFR(tmpVar)
+          )
+      }
+    } else {
+      // Neither operand is MPFR (shouldn't normally happen, but handle anyway)
+      // Create two temporary MPFR variables
+      val tmp1Name = freshName("mpfr_tmp_op1")
+      val tmp1Var = C.AST.DeclRef(tmp1Name)
+      val tmp2Name = freshName("mpfr_tmp_op2")
+      val tmp2Var = C.AST.DeclRef(tmp2Name)
+      
+      immutable.Seq(
+        C.AST.DeclStmt(C.AST.VarDecl(tmp1Name, C.AST.Type.mpfr_t)),
+        C.AST.DeclStmt(C.AST.VarDecl(tmp2Name, C.AST.Type.mpfr_t)),
+        initMPFR(tmp1Var),
+        initMPFR(tmp2Var),
+        C.AST.ExprStmt(
+          C.AST.FunCall(
+            C.AST.DeclRef("mpfr_set_si"),
+            immutable.Seq(tmp1Var, e1, C.AST.DeclRef("MPFR_RNDN"))
+          )
+        ),
+        C.AST.ExprStmt(
+          C.AST.FunCall(
+            C.AST.DeclRef("mpfr_set_si"),
+            immutable.Seq(tmp2Var, e2, C.AST.DeclRef("MPFR_RNDN"))
+          )
+        ),
+        C.AST.ExprStmt(
+          C.AST.FunCall(
+            C.AST.DeclRef(mpfrFunc),
+            immutable.Seq(result, tmp1Var, tmp2Var, C.AST.DeclRef("MPFR_RNDN"))
+          )
+        ),
+        clearMPFR(tmp1Var),
+        clearMPFR(tmp2Var)
+      )
+    }
   }
 
   // Modifying how array variables are declared to properly initialize MPFR arrays

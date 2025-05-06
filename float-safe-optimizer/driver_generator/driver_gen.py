@@ -17,7 +17,7 @@ from driver_metrics_csv import generate_metrics_csv_code
 from driver_cleanup import generate_cleanup_code
 from check_c_files import get_expected_c_files, check_c_files_exist
 
-def generate_extended_driver(parsed_info: Dict[str, Any], rise_code: str, unopt_file: str, dimension: int = 256, precision: int = 256, float_type: str = "normal", iterations: int = 50, include_negatives: bool = False, metrics_file: str = "metrics.csv", parsed_rise: Dict[str, Any] = None, input_config: Dict[str, Any] = None) -> str:
+def generate_driver(parsed_info: Dict[str, Any], rise_code: str, unopt_file: str, dimension: int = 256, precision: int = 256, float_type: str = "normal", iterations: int = 50, include_negatives: bool = False, metrics_file: str = "metrics.csv", parsed_rise: Dict[str, Any] = None, input_config: Dict[str, Any] = None) -> str:
     # Get the base name from the file path
     base_name = os.path.basename(unopt_file).replace("_unopt.c", "")
     
@@ -35,12 +35,12 @@ def generate_extended_driver(parsed_info: Dict[str, Any], rise_code: str, unopt_
 
 {get_time_func}
 
-{generate_extern_functions(base_name, parsed_rise["dimensions"], parsed_rise["inputs"])}
+{generate_extern_functions(base_name, parsed_rise["dimensions"], parsed_rise["inputs"], parsed_info.get("param_types"))}
 
 {generate_statistic_functions()}
 
 int main(int argc, char** argv) {{
-{generate_initialization_code(parsed_rise["dimensions"], dimension, iterations, precision, float_type, include_negatives, parsed_rise, input_config)}
+{generate_initialization_code(parsed_rise["dimensions"], dimension, iterations, precision, float_type, include_negatives, parsed_rise, input_config, parsed_info.get("param_types"))}
 
   printf("Running benchmarks with {float_type}{neg_note} floating point values...\\n");
 
@@ -190,12 +190,13 @@ def main():
 
     try:
         parsed_info_c = parse_c_function(c_code_unopt)
+        print(parsed_info_c)
     except (ParsingError, ValueError) as e:
         print(f"Error parsing C code: {e}")
         sys.exit(1)
 
     # Generate extended driver code
-    driver_code = generate_extended_driver(parsed_info_c, unopt_rise_code, c_file_unopt, 
+    driver_code = generate_driver(parsed_info_c, unopt_rise_code, c_file_unopt, 
                                          dimension, precision, float_type, iterations,
                                          include_negatives, metrics_file_path, parsed_rise, input_config)
 

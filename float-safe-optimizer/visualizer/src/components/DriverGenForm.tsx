@@ -419,17 +419,10 @@ export default function DriverGenForm({ onSubmit, isLoading, onRunDriver, hasDri
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Parsing RISE file...
           </div>
         ) : riseFileInfo ? (
-          <Accordion type="single" collapsible className="border rounded-md">
+          <Accordion type="single" collapsible className="border rounded-md" defaultChecked={true}>
             <AccordionItem value="advanced-config">
               <AccordionTrigger className="px-4">Advanced Input Configuration</AccordionTrigger>
               <AccordionContent className="px-4 pb-4">
-                <Alert className="mb-4">
-                  <AlertDescription>
-                    These settings are experimental and not yet fully implemented in the driver generator.
-                    Please continue using the standard dimension and float type settings below.
-                  </AlertDescription>
-                </Alert>
-                
                 <div className="space-y-4">
                   <div>
                     <h3 className="text-sm font-medium mb-2">Dimensions:</h3>
@@ -549,7 +542,7 @@ export default function DriverGenForm({ onSubmit, isLoading, onRunDriver, hasDri
 
         {/* Standard configuration options below */}
         {/* Dimension row */}
-        <div className="grid grid-cols-1 gap-6">
+        <div className="grid grid-cols-1 gap-6 hidden">
           <FormField
             control={form.control}
             name="dimension"

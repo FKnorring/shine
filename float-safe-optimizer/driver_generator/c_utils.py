@@ -24,12 +24,21 @@ double get_time_in_seconds() {{
 }}
 """
 
-def generate_extern_functions(base_name: str, dimensions: List[str], inputs: List[str]) -> str:
-    """Generate extern function declarations."""
-    input_params = ', '.join([f"float* x{i}" for i in range(len(inputs))])
-    input_params_mpfr = ', '.join([f"mpfr_t *x{i}_mpfr" for i in range(len(inputs))])
+def generate_extern_functions(base_name: str, dimensions: List[str], inputs: List[str], param_types: List[str] = None) -> str:
+    """Generate extern function declarations with correct types."""
+    output_type = param_types[0] if param_types else "float*"
+    
+    # Create input parameters based on actual types
+    input_params = []
+    input_params_mpfr = []
+    
+    for i in range(len(inputs)):
+        input_type = param_types[i+len(dimensions)+1] if param_types else "float*"
+        input_params.append(f"{input_type} x{i}")
+        input_params_mpfr.append(f"mpfr_t *x{i}_mpfr")
+    
     return f"""
-extern void {base_name}_unopt(float* output, {', '.join([f"int {dim}" for dim in dimensions])}, {input_params});
-extern void {base_name}_opt(float* output, {', '.join([f"int {dim}" for dim in dimensions])}, {input_params});
-extern void {base_name}_mpfr(mpfr_t *output, {', '.join([f"int {dim}" for dim in dimensions])}, {input_params_mpfr});
+extern void {base_name}_unopt({output_type} output, {', '.join([f"int {dim}" for dim in dimensions])}, {', '.join(input_params)});
+extern void {base_name}_opt({output_type} output, {', '.join([f"int {dim}" for dim in dimensions])}, {', '.join(input_params)});
+extern void {base_name}_mpfr(mpfr_t *output, {', '.join([f"int {dim}" for dim in dimensions])}, {', '.join(input_params_mpfr)});
 """

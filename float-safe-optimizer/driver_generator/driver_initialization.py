@@ -45,35 +45,41 @@ def calculate_array_sizes(parsed_rise: Dict[str, Any], input_config: Dict[str, A
     
     return input_sizes, output_size
 
-def allocate_input_arrays(parsed_rise: Dict[str, Any], input_config: Dict[str, Any] = None) -> Tuple[str, List[int]]:
+def allocate_input_arrays(parsed_rise: Dict[str, Any], input_config: Dict[str, Any] = None, param_types: List[str] = None) -> Tuple[str, List[int]]:
     input_allocs = []
     input_sizes, _ = calculate_array_sizes(parsed_rise, input_config)
     
     for i, size in enumerate(input_sizes):
+        # Determine the correct type (float or double)
+        array_type = "double" if param_types and "double*" in param_types[i+len(parsed_rise["dimensions"])+1] else "float"
+        
         input_allocs.append(f"""
-  float* x{i} = malloc({size} * sizeof(float));
+  {array_type}* x{i} = malloc({size} * sizeof({array_type}));
   mpfr_t *x{i}_mpfr = malloc({size} * sizeof(mpfr_t));""")
     
     return "\n".join(input_allocs), input_sizes
 
-def allocate_output_arrays(parsed_rise: Dict[str, Any], input_config: Dict[str, Any] = None) -> str:
+def allocate_output_arrays(parsed_rise: Dict[str, Any], input_config: Dict[str, Any] = None, param_types: List[str] = None) -> str:
     _, output_size = calculate_array_sizes(parsed_rise, input_config)
+    output_type = "double" if param_types and "double" in param_types[0] else "float"
+    
     return f"""
-  float* output_unopt = malloc({output_size} * sizeof(float));
-  float* output_opt = malloc({output_size} * sizeof(float));
+  {output_type}* output_unopt = malloc({output_size} * sizeof({output_type}));
+  {output_type}* output_opt = malloc({output_size} * sizeof({output_type}));
   mpfr_t *output_mpfr = malloc({output_size} * sizeof(mpfr_t));"""
 
-def allocate_metric_arrays(iterations: int) -> str:
+def allocate_metric_arrays(iterations: int, result_type: str = "float") -> str:
     return f"""
   // Arrays to track performance times for each iteration
   double* unopt_times = malloc({iterations} * sizeof(double));
+  {result_type}* unopt_results = malloc({iterations} * sizeof({result_type}));
   double* opt_times = malloc({iterations} * sizeof(double));
-  float* opt_results = malloc({iterations} * sizeof(float));
+  {result_type}* opt_results = malloc({iterations} * sizeof({result_type}));
   
   // Arrays for sorted results
   double* sorted_unopt_times = malloc({iterations} * sizeof(double));
   double* sorted_opt_times = malloc({iterations} * sizeof(double));
-  float* sorted_opt_results = malloc({iterations} * sizeof(float));"""
+  {result_type}* sorted_opt_results = malloc({iterations} * sizeof({result_type}));"""
 
 def check_allocations(num_inputs: int) -> str:
     input_checks = " || ".join([f"!x{i} || !x{i}_mpfr" for i in range(num_inputs)])
@@ -85,11 +91,14 @@ def check_allocations(num_inputs: int) -> str:
     return EXIT_FAILURE;
   }}"""
 
-def initialize_input_arrays(parsed_rise: Dict[str, Any], precision: int, float_type: str, include_negatives: bool, input_config: Dict[str, Any] = None) -> str:
+def initialize_input_arrays(parsed_rise: Dict[str, Any], precision: int, float_type: str, include_negatives: bool, input_config: Dict[str, Any] = None, param_types: List[str] = None) -> str:
     input_inits = []
     input_sizes, _ = calculate_array_sizes(parsed_rise, input_config)
     
     for i, size in enumerate(input_sizes):
+        # Get the correct C type (float or double)
+        c_type = "double" if param_types and "double" in param_types[i+len(parsed_rise["dimensions"])+1] else "float"
+        
         # Initialize MPFR variables first
         input_inits.append(f"""
   // Initialize MPFR variables for input {i}
@@ -97,19 +106,44 @@ def initialize_input_arrays(parsed_rise: Dict[str, Any], precision: int, float_t
     mpfr_init2(x{i}_mpfr[j], {precision});
   }}""")
         
+        # Create initialization code that respects float_type (distribution) and include_negatives
+        neg_code = "if (rand() % 2) {\n      val = -val;\n    }" if include_negatives else ""
+        
+        # Type-specific initialization logic based on float_type parameter
+        init_code = ""
+        if float_type == "normal":
+            init_code = f"""
+    {c_type} val;
+    val = ({c_type})rand() / RAND_MAX;
+    {neg_code}"""
+        elif float_type == "subnormal":
+            init_code = f"""
+    {c_type} val;
+    val = ({c_type})((rand() % 1000) * 1e-45);
+    {neg_code}"""
+        elif float_type == "mixed":
+            init_code = f"""
+    {c_type} val;
+    if (rand() % 2) {{
+      val = ({c_type})rand() / RAND_MAX;
+    }} else {{
+      val = ({c_type})((rand() % 1000) * 1e-45);
+    }}
+    {neg_code}"""
+        elif float_type == "magnitude":
+            init_code = f"""
+    {c_type} val;
+    if (rand() % 2) {{
+      val = ({c_type})(rand() * 1e10);
+    }} else {{
+      val = ({c_type})(rand() * 1e-10);
+    }}
+    {neg_code}"""
+        
         # Then initialize values
         input_inits.append(f"""
   // Initialize values for input {i}
-  for (int j = 0; j < {size}; j++) {{
-    float val;
-    if (rand() % 2) {{
-      val = (float)rand() / RAND_MAX;
-    }} else {{
-      val = (float)((rand() % 1000) * 1e-45);
-    }}
-    if (rand() % 2) {{
-      val = -val;
-    }}
+  for (int j = 0; j < {size}; j++) {{{init_code}
     x{i}[j] = val;
     mpfr_set_d(x{i}_mpfr[j], val, MPFR_RNDN);
   }}""")
@@ -124,16 +158,22 @@ def initialize_output_arrays(parsed_rise: Dict[str, Any], precision: int, input_
     mpfr_init2(output_mpfr[i], {precision});
   }}"""
 
-def generate_initialization_code(dimensions: List[str], dimension: int, iterations: int, precision: int, float_type: str, include_negatives: bool, parsed_rise: Dict[str, Any], input_config: Dict[str, Any] = None) -> str:
+def generate_initialization_code(dimensions: List[str], dimension: int, iterations: int, precision: int, float_type: str, include_negatives: bool, parsed_rise: Dict[str, Any], input_config: Dict[str, Any] = None, param_types: List[str] = None) -> str:
     """Generate initialization code for the driver."""
+    
+    # Get the result type for metrics arrays
+    result_type = "double" if param_types and "double*" in param_types[0] else "float"
+
+    print("RESULT TYPE: ", result_type)
+    print("PARAM TYPES: ", param_types)
     
     # Generate all initialization components with input config
     dim_decls = declare_dimension_sizes(dimensions, dimension, input_config)
-    input_allocs, input_sizes = allocate_input_arrays(parsed_rise, input_config)
-    output_allocs = allocate_output_arrays(parsed_rise, input_config)
-    metric_allocs = allocate_metric_arrays(iterations)
+    input_allocs, input_sizes = allocate_input_arrays(parsed_rise, input_config, param_types)
+    output_allocs = allocate_output_arrays(parsed_rise, input_config, param_types)
+    metric_allocs = allocate_metric_arrays(iterations, result_type)
     alloc_checks = check_allocations(len(parsed_rise["inputs"]))
-    input_inits = initialize_input_arrays(parsed_rise, precision, float_type, include_negatives, input_config)
+    input_inits = initialize_input_arrays(parsed_rise, precision, float_type, include_negatives, input_config, param_types)
     output_inits = initialize_output_arrays(parsed_rise, precision, input_config)
     
     # Combine all components
@@ -148,4 +188,4 @@ def generate_initialization_code(dimensions: List[str], dimension: int, iteratio
 {alloc_checks}
 {input_inits}
 {output_inits}
-""" 
+"""

@@ -64,7 +64,14 @@ def parse_c_function(c_code: str) -> Dict[str, Any]:
         is_single_value = True
         
     categorized_args["is_single_value"] = is_single_value
-
+    
+    # Add extraction of the actual parameter types
+    param_types = []
+    for arg in parsed_args:
+        param_types.append(arg["type"])
+    
+    categorized_args["param_types"] = param_types
+    
     return {"name": func_name, **categorized_args}
 
 
